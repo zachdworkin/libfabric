@@ -74,12 +74,29 @@ pipeline {
                             )
                           """
                         }
-                    }
-                }
-                stage('mlx5-verbs_rxm-dbg') {
-                    agent {node {label 'mlx5'}}
-                    options { skipDefaultCheckout() }
-                    steps {
+                     }
+
+                 }
+		 stage('ze') {
+		     agent {node {label 'ats'}}
+                     options { skipDefaultCheckout() }
+		     steps{
+                        withEnv(['PATH+EXTRA=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin/:$PYTHONPATH'])
+                        {
+                          sh """
+                            env
+                            (
+                                cd /opt${env.WORKSPACE}/contrib/intel/jenkins/
+                                python3.7 runtests.py --prov=shm --ofi_build_mode='dbg' --device='ze'
+                            )
+                          """
+                        }
+		     }
+		 }
+                 stage('mlx5-verbs_rxm-dbg') {
+                     agent {node {label 'mlx5'}}
+                     options { skipDefaultCheckout() }
+                     steps{
                         withEnv(['PATH+EXTRA=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin:$PYTHONPATH']) {
                           sh """
                             env
