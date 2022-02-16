@@ -37,7 +37,7 @@
 #include "ofi_hmem.h"
 #include "ofi.h"
 
-#if HAVE_LIBZE
+#if HAVE_LIBZE || defined(ENABLE_ZE_DLOPEN)
 
 #include <dirent.h>
 #include <level_zero/ze_api.h>
