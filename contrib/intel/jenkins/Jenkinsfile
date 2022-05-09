@@ -91,7 +91,7 @@ pipeline {
             when { equals expected: 1, actual: DO_RUN }
             parallel {
                 stage('MPI-verbs-rxm') {
-                    agent {node {label 'mlx5'}}
+                    agent {node {label 'test-mlx5-85'}}
                     options { skipDefaultCheckout() }
                     steps {
                         withEnv(['PATH+EXTRA=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin/:$PYTHONPATH'])
@@ -115,7 +115,7 @@ pipeline {
                     }
                 }
                 stage('MPI-tcp-rxm-2') {
-                    agent {node {label 'eth'}}
+                    agent {node {label 'test-eth'}}
                     options { skipDefaultCheckout() }
                     steps {
                         withEnv(['PATH+EXTRA=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin/:$PYTHONPATH'])
@@ -131,6 +131,7 @@ pipeline {
                         }
                     }
                 }
+/*
                 stage('tcp') {
                     agent {node {label 'eth'}}
                     options { skipDefaultCheckout() }
@@ -151,7 +152,7 @@ pipeline {
                     }
                 }
                 stage('verbs-rxm') {
-                    agent {node {label 'mlx5'}}
+                    agent {node {label 'test-mlx5-85'}}
                     options { skipDefaultCheckout() }
                     steps {
                         withEnv(['PATH+EXTRA=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin/:$PYTHONPATH'])
@@ -170,7 +171,7 @@ pipeline {
                     }
                 }
                 stage('verbs-rxd') {
-                    agent {node {label 'mlx5'}}
+                    agent {node {label 'test-mlx5-85'}}
                     options { skipDefaultCheckout() }
                     steps {
                         withEnv(['PATH+EXTRA=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin/:$PYTHONPATH'])
@@ -266,8 +267,9 @@ pipeline {
                         }
                     }
                 }
+*/
                 stage('MPI-tcp-rxm-1') {
-                    agent {node {label 'eth'}}
+                    agent {node {label 'test-eth'}}
                     options { skipDefaultCheckout() }
                     steps {
                         withEnv(['PATH+EXTRA=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin/:$PYTHONPATH'])
@@ -284,7 +286,7 @@ pipeline {
                     }
                 }
                 stage('MPI-tcp-rxm-3') {
-                    agent {node {label 'eth'}}
+                    agent {node {label 'test-eth'}}
                     options { skipDefaultCheckout() }
                     steps {
                         withEnv(['PATH+EXTRA=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin/:$PYTHONPATH'])
@@ -302,8 +304,9 @@ pipeline {
                         }
                     }
                 }
+/*
                 stage('MPICH testsuite') {
-                    agent {node {label 'mlx5'}}
+                    agent {node {label 'test-mlx5-85'}}
                     options { skipDefaultCheckout() }
                     steps {
                         withEnv(['PATH+EXTRA=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin/:$PYTHONPATH'])
@@ -346,7 +349,7 @@ pipeline {
                         }
                     }
                 }
-                stage('oneCCL') {
+                stage('oneCCL-tcp-rxm') {
                     agent {node {label 'eth'}}
                     options { skipDefaultCheckout() }
                     steps {
@@ -383,6 +386,7 @@ pipeline {
                         }
                     }
                 }
+*/
             }
         }
     }
