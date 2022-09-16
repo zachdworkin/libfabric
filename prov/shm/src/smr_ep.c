@@ -541,7 +541,7 @@ static int smr_format_sar(struct smr_ep *ep, struct smr_cmd *cmd,
 	if (peer_smr->max_sar_buf_per_peer == 0)
 		return -FI_EAGAIN;
 
-	if (smr_peer_data(ep->region)[id].sar_status) {
+	if (smr_peer_data(ep->region)[id].status) {
 		return -FI_EAGAIN;
 	}
 
@@ -571,10 +571,6 @@ static int smr_format_sar(struct smr_ep *ep, struct smr_cmd *cmd,
 	cmd->msg.hdr.size = total_len;
 	pending->bytes_done = 0;
 
-	/* Nothing to copy for 0 byte transfer */
-	if (!cmd->msg.hdr.size)
-		goto out;
-
 	if (cmd->msg.hdr.op != ofi_op_read_req) {
 		if (smr_env.use_dsa_sar && ofi_mr_all_host(mr, count)) {
 			ret = smr_dsa_copy_to_sar(ep, smr_sar_pool(peer_smr),
@@ -594,8 +590,9 @@ static int smr_format_sar(struct smr_ep *ep, struct smr_cmd *cmd,
 					mr, iov, count, &pending->bytes_done);
 		}
 	}
-out:
-	smr_peer_data(smr)[id].sar_status = SMR_STATUS_SAR_FULL;
+
+	smr_peer_data(smr)[id].status = SMR_STATUS_SAR_EMPTY;
+
 	return FI_SUCCESS;
 }
 

@@ -177,10 +177,16 @@ struct smr_addr {
 
 struct smr_peer_data {
 	struct smr_addr		addr;
+<<<<<<< current
 	uint32_t		sar_status;
 	uint16_t		name_sent;
 	uint16_t		ipc_valid;
 	struct ofi_xpmem_client xpmem;
+=======
+	uint32_t		status;
+	uint32_t		name_sent;
+	struct xpmem_client 	xpmem;
+>>>>>>> patched
 };
 
 extern struct dlist_entry ep_name_list;

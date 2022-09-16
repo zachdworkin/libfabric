@@ -335,7 +335,7 @@ static ssize_t smr_generic_rma_inject(struct fid_ep *ep_fid, const void *buf,
 	cmds = 1 + !(domain->fast_rma && !(flags & FI_REMOTE_CQ_DATA) &&
 		     smr_vma_enabled(ep, peer_smr));
 
-	if (smr_peer_data(ep->region)[id].sar_status)
+	if (smr_peer_data(ep->region)[id].status)
 		return -FI_EAGAIN;
 
 	iov.iov_base = (void *) buf;
