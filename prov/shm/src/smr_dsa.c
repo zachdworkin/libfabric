@@ -673,10 +673,15 @@ static void dsa_update_sar_entry(struct smr_region *smr,
 	struct smr_resp *resp;
 	struct smr_cmd *cmd;
 
-	sar_entry->bytes_done += dsa_cmd_context->bytes_in_progress;
-	cmd = &sar_entry->cmd;
-	peer_smr = smr_peer_region(smr, cmd->msg.hdr.id);
-	resp = smr_get_ptr(peer_smr, cmd->msg.hdr.src_data);
+	entry->bytes_done += dsa_cmd_context->bytes_in_progress;
+	cmd = &entry->cmd;
+	if (entry->send_id == -1) {
+		peer_smr = smr_peer_region(smr, cmd->msg.hdr.id);
+		resp = smr_get_ptr(peer_smr, cmd->msg.hdr.src_data);
+	} else {
+		peer_smr = smr_peer_region(smr, entry->send_id);
+		resp = smr_get_ptr(smr, cmd->msg.hdr.src_data);
+	}
 
 	assert(resp->status == SMR_STATUS_BUSY);
 	resp->status = (dsa_cmd_context->dir == OFI_COPY_IOV_TO_BUF ?

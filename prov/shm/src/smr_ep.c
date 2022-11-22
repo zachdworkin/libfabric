@@ -240,7 +240,7 @@ void smr_format_pend_resp(struct smr_tx_entry *pend, struct smr_cmd *cmd,
 	pend->context = context;
 	memcpy(pend->iov, iov, sizeof(*iov) * iov_count);
 	pend->iov_count = iov_count;
-	pend->peer_id = id;
+	pend->send_id = id;
 	pend->op_flags = op_flags;
 	if (cmd->msg.hdr.op_src != smr_src_sar) {
 		pend->bytes_done = 0;
@@ -306,6 +306,7 @@ void smr_format_iov(struct smr_cmd *cmd, const struct iovec *iov,
 }
 
 <<<<<<< current
+<<<<<<< current
 static int smr_format_ipc(struct smr_cmd *cmd, void *ptr, size_t len,
 			  struct smr_region *smr, struct smr_resp *resp,
 			  enum fi_hmem_iface iface, uint64_t device)
@@ -313,6 +314,12 @@ static int smr_format_ipc(struct smr_cmd *cmd, void *ptr, size_t len,
 int smr_format_ze_ipc(struct smr_ep *ep, int64_t id, struct smr_cmd *cmd,
 		const struct iovec *iov, size_t iov_count, uint64_t device,
 		size_t total_len, struct smr_region *smr)
+=======
+static int smr_format_ze_ipc(struct smr_ep *ep, int64_t id, struct smr_cmd *cmd,
+		const struct iovec *iov, uint64_t device, size_t total_len,
+		struct smr_region *smr,	 struct smr_resp *resp,
+		struct smr_progress_entry *pend)
+>>>>>>> patched
 {
 	int ret;
 	void *base;
@@ -392,7 +399,7 @@ int smr_format_ipc(struct smr_cmd *cmd, const struct iovec *iov,
 
 static int smr_format_mmap(struct smr_ep *ep, struct smr_cmd *cmd,
 		const struct iovec *iov, size_t count, size_t total_len,
-		struct smr_tx_entry *pend, struct smr_resp *resp)
+		struct smr_progress_entry *pend, struct smr_resp *resp)
 {
 	void *mapped_ptr;
 	int fd, ret, num;
@@ -533,7 +540,7 @@ static int smr_format_sar(struct smr_ep *ep, struct smr_cmd *cmd,
 		   struct ofi_mr **mr, const struct iovec *iov, size_t count,
 		   size_t total_len, struct smr_region *smr,
 		   struct smr_region *peer_smr, int64_t id,
-		   struct smr_tx_entry *pending, struct smr_resp *resp)
+		   struct smr_progress_entry *pending, struct smr_resp *resp)
 {
 	int i, ret;
 	uint32_t sar_needed;
@@ -737,13 +744,13 @@ static ssize_t smr_do_iov(struct smr_ep *ep, struct smr_region *peer_smr, int64_
 		          void *context, struct smr_cmd *cmd)
 {
 	struct smr_resp *resp;
-	struct smr_tx_entry *pend;
+	struct smr_progress_entry *pend;
 
 	if (ofi_cirque_isfull(smr_resp_queue(ep->region)))
 		return -FI_EAGAIN;
 
 	resp = ofi_cirque_next(smr_resp_queue(ep->region));
-	pend = ofi_freestack_pop(ep->tx_fs);
+	pend = ofi_freestack_pop(ep->tx_pend_fs);
 
 	smr_generic_format(cmd, peer_id, op, tag, data, op_flags);
 	smr_format_iov(cmd, iov, iov_count, total_len, ep->region, resp);
@@ -761,20 +768,20 @@ static ssize_t smr_do_sar(struct smr_ep *ep, struct smr_region *peer_smr, int64_
 		          void *context, struct smr_cmd *cmd)
 {
 	struct smr_resp *resp;
-	struct smr_tx_entry *pend;
+	struct smr_progress_entry *pend;
 	int ret;
 
 	if (ofi_cirque_isfull(smr_resp_queue(ep->region)))
 		return -FI_EAGAIN;
 
 	resp = ofi_cirque_next(smr_resp_queue(ep->region));
-	pend = ofi_freestack_pop(ep->tx_fs);
+	pend = ofi_freestack_pop(ep->tx_pend_fs);
 
 	smr_generic_format(cmd, peer_id, op, tag, data, op_flags);
 	ret = smr_format_sar(ep, cmd, desc, iov, iov_count, total_len,
 			     ep->region, peer_smr, id, pend, resp);
 	if (ret) {
-		ofi_freestack_push(ep->tx_fs, pend);
+		ofi_freestack_push(ep->tx_pend_fs, pend);
 		return ret;
 	}
 
@@ -792,14 +799,14 @@ static ssize_t smr_do_ipc(struct smr_ep *ep, struct smr_region *peer_smr, int64_
 		          void *context, struct smr_cmd *cmd)
 {
 	struct smr_resp *resp;
-	struct smr_tx_entry *pend;
+	struct smr_progress_entry *pend;
 	int ret = -FI_EAGAIN;
 
 	if (ofi_cirque_isfull(smr_resp_queue(ep->region)))
 		return -FI_EAGAIN;
 
 	resp = ofi_cirque_next(smr_resp_queue(ep->region));
-	pend = ofi_freestack_pop(ep->tx_fs);
+	pend = ofi_freestack_pop(ep->tx_pend_fs);
 
 	smr_generic_format(cmd, peer_id, op, tag, data, op_flags);
 	assert(iov_count == 1 && desc && desc[0]);
@@ -820,7 +827,7 @@ static ssize_t smr_do_ipc(struct smr_ep *ep, struct smr_region *peer_smr, int64_
 	if (ret) {
 		FI_WARN_ONCE(&smr_prov, FI_LOG_EP_CTRL,
 			     "unable to use IPC for msg, fallback to using SAR\n");
-		ofi_freestack_push(ep->tx_fs, pend);
+		ofi_freestack_push(ep->tx_pend_fs, pend);
 		return smr_do_sar(ep, peer_smr, id, peer_id, op, tag, data,
 				  op_flags, desc, iov, iov_count,
 				  total_len, context, cmd);
@@ -840,19 +847,19 @@ static ssize_t smr_do_mmap(struct smr_ep *ep, struct smr_region *peer_smr, int64
 		           void *context, struct smr_cmd *cmd)
 {
 	struct smr_resp *resp;
-	struct smr_tx_entry *pend;
+	struct smr_progress_entry *pend;
 	int ret;
 
 	if (ofi_cirque_isfull(smr_resp_queue(ep->region)))
 		return -FI_EAGAIN;
 
 	resp = ofi_cirque_next(smr_resp_queue(ep->region));
-	pend = ofi_freestack_pop(ep->tx_fs);
+	pend = ofi_freestack_pop(ep->tx_pend_fs);
 
 	smr_generic_format(cmd, peer_id, op, tag, data, op_flags);
 	ret = smr_format_mmap(ep, cmd, iov, iov_count, total_len, pend, resp);
 	if (ret) {
-		ofi_freestack_push(ep->tx_fs, pend);
+		ofi_freestack_push(ep->tx_pend_fs, pend);
 		return ret;
 	}
 
@@ -934,6 +941,9 @@ static int smr_ep_close(struct fid *fid)
 		ofi_bufpool_destroy(ep->pend_buf_pool);
 
 	smr_tx_fs_free(ep->tx_fs);
+	smr_cmd_ctx_fs_free(ep->cmd_ctx_fs);
+	smr_pend_fs_free(ep->tx_pend_fs);
+	smr_pend_fs_free(ep->rx_pend_fs);
 
 	free((void *)ep->name);
 	free(ep);
@@ -1442,6 +1452,9 @@ int smr_endpoint(struct fid_domain *domain, struct fi_info *info,
 		goto ep;
 
 	ep->tx_fs = smr_tx_fs_create(info->tx_attr->size, NULL, NULL);
+	ep->cmd_ctx_fs = smr_cmd_ctx_fs_create(info->rx_attr->size, NULL, NULL);
+	ep->tx_pend_fs = smr_pend_fs_create(info->tx_attr->size, NULL, NULL);
+	ep->rx_pend_fs = smr_pend_fs_create(info->rx_attr->size, NULL, NULL);
 
 	dlist_init(&ep->sar_list);
 	dlist_init(&ep->ipc_cpy_pend_list);

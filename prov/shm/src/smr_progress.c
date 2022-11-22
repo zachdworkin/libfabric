@@ -82,7 +82,8 @@ smr_try_progress_from_sar(struct smr_ep *ep, struct smr_region *smr,
 }
 
 static int smr_progress_resp_entry(struct smr_ep *ep, struct smr_resp *resp,
-				   struct smr_tx_entry *pending, uint64_t *err)
+				   struct smr_progress_entry *pending,
+				   uint64_t *err)
 {
 	int i;
 	struct smr_region *peer_smr;
@@ -92,7 +93,7 @@ static int smr_progress_resp_entry(struct smr_ep *ep, struct smr_resp *resp,
 	uint8_t *src;
 	ssize_t hmem_copy_ret;
 
-	peer_smr = smr_peer_region(ep->region, pending->peer_id);
+	peer_smr = smr_peer_region(ep->region, pending->send_id);
 
 	switch (pending->cmd.msg.hdr.op_src) {
 	case smr_src_iov:
@@ -209,7 +210,7 @@ static int smr_progress_resp_entry(struct smr_ep *ep, struct smr_resp *resp,
 static void smr_progress_resp(struct smr_ep *ep)
 {
 	struct smr_resp *resp;
-	struct smr_tx_entry *pending;
+	struct smr_progress_entry *pending;
 	int ret;
 
 	ofi_genlock_lock(&ep->util_ep.lock);
@@ -218,7 +219,7 @@ static void smr_progress_resp(struct smr_ep *ep)
 		if (resp->status == SMR_STATUS_BUSY)
 			break;
 
-		pending = (struct smr_tx_entry *) resp->msg_id;
+		pending = (struct smr_progress_entry *) resp->msg_id;
 		if (smr_progress_resp_entry(ep, resp, pending, &resp->status))
 			break;
 
@@ -235,7 +236,7 @@ static void smr_progress_resp(struct smr_ep *ep)
 				"unable to process tx completion\n");
 			break;
 		}
-		ofi_freestack_push(ep->tx_fs, pending);
+		ofi_freestack_push(ep->tx_pend_fs, pending);
 		ofi_cirque_discard(smr_resp_queue(ep->region));
 	}
 	ofi_genlock_unlock(&ep->util_ep.lock);
@@ -494,13 +495,13 @@ static int smr_progress_mmap(struct smr_cmd *cmd, struct ofi_mr **mr,
 	return -ret;
 }
 
-static struct smr_pend_entry *smr_progress_sar(struct smr_cmd *cmd,
+static struct smr_progress_entry *smr_progress_sar(struct smr_cmd *cmd,
 			struct fi_peer_rx_entry *rx_entry, struct ofi_mr **mr,
 			struct iovec *iov, size_t iov_count,
 			size_t *total_len, struct smr_ep *ep)
 {
 	struct smr_region *peer_smr;
-	struct smr_pend_entry *sar_entry;
+	struct smr_progress_entry *sar_entry;
 	struct smr_resp *resp;
 	struct iovec sar_iov[SMR_IOV_LIMIT];
 
@@ -555,7 +556,7 @@ smr_ipc_async_copy(struct smr_ep *ep, void *ptr,
 		   struct ofi_mr_entry *mr_entry, struct smr_cmd *cmd,
 		   struct smr_pend_entry **pend)
 {
-	struct smr_pend_entry *ipc_entry;
+	struct smr_progress_entry *ipc_entry;
 	enum fi_hmem_iface iface = cmd->msg.data.ipc_info.iface;
 	uint64_t device = cmd->msg.data.ipc_info.device;
 	int ret;
@@ -868,7 +869,7 @@ out:
 static int smr_start_common(struct smr_ep *ep, struct smr_cmd *cmd,
 		struct fi_peer_rx_entry *rx_entry)
 {
-	struct smr_pend_entry *pend = NULL;
+	struct smr_progress_entry *pend = NULL;
 	size_t total_len = 0;
 	uint64_t comp_flags;
 	void *comp_buf;
@@ -1062,7 +1063,7 @@ static int smr_alloc_cmd_ctx(struct smr_ep *ep,
 		struct fi_peer_rx_entry *rx_entry, struct smr_cmd *cmd)
 {
 	struct smr_cmd_ctx *cmd_ctx;
-	struct smr_pend_entry *sar_entry;
+	struct smr_progress_entry *sar_entry;
 	struct smr_inject_buf *tx_buf;
 	struct smr_unexp_buf *buf;
 
@@ -1687,7 +1688,7 @@ static void smr_progress_cmd(struct smr_ep *ep)
 
 void smr_progress_ipc_list(struct smr_ep *ep)
 {
-	struct smr_pend_entry *ipc_entry;
+	struct smr_progress_entry *ipc_entry;
 	struct smr_region *peer_smr;
 	struct smr_domain *domain;
 	enum fi_hmem_iface iface;
@@ -1753,7 +1754,8 @@ void smr_progress_ipc_list(struct smr_ep *ep)
 }
 
 static void smr_buffer_sar(struct smr_ep *ep, struct smr_region *peer_smr,
-		      struct smr_resp *resp, struct smr_pend_entry *sar_entry)
+			   struct smr_resp *resp,
+			   struct smr_progress_entry *sar_entry)
 {
 	struct smr_sar_buf *sar_buf;
 	struct smr_unexp_buf *buf;
@@ -1791,7 +1793,7 @@ static void smr_buffer_sar(struct smr_ep *ep, struct smr_region *peer_smr,
 static void smr_progress_sar_list(struct smr_ep *ep)
 {
 	struct smr_region *peer_smr;
-	struct smr_pend_entry *sar_entry;
+	struct smr_progress_entry *sar_entry;
 	struct smr_resp *resp;
 	struct dlist_entry *tmp;
 	void *comp_ctx;
@@ -1799,7 +1801,7 @@ static void smr_progress_sar_list(struct smr_ep *ep)
 	int ret;
 
 	ofi_genlock_lock(&ep->util_ep.lock);
-	dlist_foreach_container_safe(&ep->sar_list, struct smr_pend_entry,
+	dlist_foreach_container_safe(&ep->sar_list, struct smr_progress_entry,
 				     sar_entry, entry, tmp) {
 		peer_smr = smr_peer_region(ep->region, sar_entry->cmd.msg.hdr.id);
 		resp = smr_get_ptr(peer_smr, sar_entry->cmd.msg.hdr.src_data);

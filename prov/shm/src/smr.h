@@ -114,6 +114,7 @@ int smr_query_atomic(struct fid_domain *domain, enum fi_datatype datatype,
 
 #define SMR_IOV_LIMIT		4
 
+<<<<<<< current
 struct smr_tx_entry {
 	struct smr_cmd	cmd;
 	int64_t		peer_id;
@@ -125,30 +126,62 @@ struct smr_tx_entry {
 	void		*map_ptr;
 	struct smr_ep_name *map_name;
 	struct ofi_mr	*mr[SMR_IOV_LIMIT];
+=======
+struct smr_rx_entry {
+	struct fi_peer_rx_entry	peer_entry;
+	struct iovec		iov[SMR_IOV_LIMIT];
+	void			*desc[SMR_IOV_LIMIT];
+	int64_t			peer_id;
+	uint64_t		ignore;
+	int			multi_recv_ref;
+	uint64_t		err;
+	enum fi_hmem_iface	iface;
+	uint64_t		device;
+>>>>>>> patched
 };
 
-struct smr_pend_entry {
+struct smr_progress_entry {
 	struct dlist_entry	entry;
 	struct smr_cmd		cmd;
 	struct fi_peer_rx_entry	*rx_entry;
-	struct smr_cmd_ctx	*cmd_ctx;
+	struct smr_cmd_ctx      *cmd_ctx;
 	size_t			bytes_done;
+	int64_t			send_id;
+	void			*context;
 	struct iovec		iov[SMR_IOV_LIMIT];
+	struct ofi_mr           *mr[SMR_IOV_LIMIT];
+	struct ofi_mr_entry     *ipc_entry;
+	ofi_hmem_async_event_t  async_event;
 	size_t			iov_count;
-	struct ofi_mr		*mr[SMR_IOV_LIMIT];
-	struct ofi_mr_entry	*ipc_entry;
-	ofi_hmem_async_event_t	async_event;
+	uint64_t		op_flags;
+	size_t			bytes_done;
+	void			*map_ptr;
+	struct smr_ep_name 	*map_name;
+	enum fi_hmem_iface	iface;
+	uint64_t		device;
+	int			fd;
+};
+
+struct smr_cq {
+	struct util_cq util_cq;
+	struct fid_peer_cq *peer_cq;
 };
 
 struct smr_cmd_ctx {
 	struct dlist_entry entry;
 	struct smr_ep *ep;
 	struct smr_cmd cmd;
-	struct smr_pend_entry *sar_entry;
+	struct smr_progress_entry *sar_entry;
 	struct slist buf_list;
 };
 
-OFI_DECLARE_FREESTACK(struct smr_tx_entry, smr_tx_fs);
+OFI_DECLARE_FREESTACK(struct smr_rx_entry, smr_recv_fs);
+OFI_DECLARE_FREESTACK(struct smr_cmd_ctx, smr_cmd_ctx_fs);
+OFI_DECLARE_FREESTACK(struct smr_progress_entry, smr_pend_fs);
+struct smr_queue {
+	struct dlist_entry list;
+	dlist_func_t *match_func;
+};
 
 struct smr_fabric {
 	struct util_fabric	util_fabric;
@@ -224,6 +257,9 @@ struct smr_ep {
 	struct ofi_bufpool	*cmd_ctx_pool;
 	struct ofi_bufpool	*unexp_buf_pool;
 	struct ofi_bufpool	*pend_buf_pool;
+	struct smr_cmd_ctx_fs	*cmd_ctx_fs;
+	struct smr_pend_fs	*tx_pend_fs;
+	struct smr_pend_fs	*rx_pend_fs;
 
 	struct smr_tx_fs	*tx_fs;
 	struct dlist_entry	sar_list;
