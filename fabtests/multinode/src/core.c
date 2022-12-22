@@ -141,14 +141,12 @@ static int multi_setup_fabric(int argc, char **argv)
 		return ret;
 
 	if (fi->domain_attr->mr_mode & FI_MR_LOCAL) {
-		ret = fi_mr_reg(domain, rx_barrier,
+		ret = ft_reg_mr(fi, rx_barrier,
 				FT_MAX_CTRL_MSG * pm_job.num_ranks,
-				FT_MSG_MR_ACCESS, 0, BARRIER_TAG, 0,
-				&mr_barrier, NULL);
+				FT_MSG_MR_ACCESS, BARRIER_TAG, FI_HMEM_SYSTEM,
+				0, &mr_barrier, &barrier_desc);
 		if (ret)
 			return ret;
-
-		barrier_desc = fi_mr_desc(mr_barrier);
 	}
 
 	len = FT_MAX_CTRL_MSG;
