@@ -55,9 +55,11 @@
 #include <assert.h>
 #include <hmem.h>
 
-char *tx_barrier;
+#define BARRIER_TAG	0x5CA1AB1E
+
 char *rx_barrier;
 struct fid_mr *mr_barrier;
+void *barrier_desc;
 struct fi_context2 *barrier_tx_ctx, *barrier_rx_ctx;
 
 struct multi_timer *timers;
@@ -100,6 +102,9 @@ static int multi_setup_fabric(int argc, char **argv)
 		return -FI_ENODATA;
 	}
 
+	hints->caps |= FI_TAGGED;
+	ft_tag = BARRIER_TAG;
+
 	method = multi_xfer_methods[pm_job.transfer_method];
 
 	tx_seq = 0;
@@ -134,6 +139,17 @@ static int multi_setup_fabric(int argc, char **argv)
 	ret = ft_alloc_msgs();
 	if (ret)
 		return ret;
+
+	if (fi->domain_attr->mr_mode & FI_MR_LOCAL) {
+		ret = fi_mr_reg(domain, rx_barrier,
+				FT_MAX_CTRL_MSG * pm_job.num_ranks,
+				FT_MSG_MR_ACCESS, 0, BARRIER_TAG, 0,
+				&mr_barrier, NULL);
+		if (ret)
+			return ret;
+
+		barrier_desc = fi_mr_desc(mr_barrier);
+	}
 
 	len = FT_MAX_CTRL_MSG;
 	ret = fi_getname(&ep->fid, (void *) my_name, &len);
@@ -221,10 +237,11 @@ int multi_msg_recv()
 		offset = state.recvs_posted % opts.window_size;
 		assert(rx_ctx_arr[offset].state == OP_DONE);
 
+		remote_fi_addr = pm_job.fi_addrs[state.cur_source];
 		ret = ft_post_rx_buf(ep, opts.transfer_size,
 				     &rx_ctx_arr[offset].context,
 				     rx_ctx_arr[offset].buf,
-				     rx_ctx_arr[offset].desc, 0);
+				     rx_ctx_arr[offset].desc, 1);
 		if (ret)
 			return ret;
 
@@ -260,7 +277,7 @@ int multi_msg_send()
 				     NO_CQ_DATA,
 				     &tx_ctx_arr[offset].context,
 				     tx_ctx_arr[offset].buf,
-				     tx_ctx_arr[offset].desc, 0);
+				     tx_ctx_arr[offset].desc, 1);
 		if (ret)
 			return ret;
 
@@ -372,9 +389,11 @@ int send_recv_barrier(int sync)
 	int ret, i;
 
 	for (i = 0; i < pm_job.num_ranks; i++) {
-		ret = ft_post_rx_buf(ep, opts.transfer_size,
-			     	     &barrier_rx_ctx[i],
-			     	     rx_buf, mr_desc, 0);
+		remote_fi_addr = pm_job.fi_addrs[i];
+		ret = ft_post_rx_buf(ep, FT_MAX_CTRL_MSG,
+				     &barrier_rx_ctx[i],
+				     rx_barrier + (FT_MAX_CTRL_MSG * i),
+				     barrier_desc, BARRIER_TAG);
 		if (ret)
 			return ret;
 	}
@@ -382,7 +401,7 @@ int send_recv_barrier(int sync)
 	for (i = 0; i < pm_job.num_ranks; i++) {
 		ret = ft_post_tx_buf(ep, pm_job.fi_addrs[i], 0,
 				     NO_CQ_DATA, &barrier_tx_ctx[i],
-		                     tx_buf, mr_desc, 0);
+				     NULL, NULL, BARRIER_TAG);
 		if (ret)
 			return ret;
 	}
@@ -456,6 +475,8 @@ static void pm_job_free_res()
 	free(barrier_tx_ctx);
 	free(barrier_rx_ctx);
 
+	free(rx_barrier);
+
 	FT_CLOSE_FID(mr_barrier);
 }
 
@@ -470,6 +491,10 @@ int multinode_run_tests(int argc, char **argv)
 
 	barrier_rx_ctx = malloc(sizeof(*barrier_rx_ctx) * pm_job.num_ranks);
 	if (!barrier_rx_ctx)
+		return -FI_ENOMEM;
+
+	rx_barrier = malloc(FT_MAX_CTRL_MSG * pm_job.num_ranks);
+	if (!rx_barrier)
 		return -FI_ENOMEM;
 
 	ret = multi_setup_fabric(argc, argv);
