@@ -168,7 +168,6 @@ pipeline {
           sh "git clone --branch ${TARGET} ${env.UPSTREAM} ${env.WORKSPACE}/py_scripts"
           sh "${env.SKIP_PATH}/skip.sh ${env.WORKSPACE} ${TARGET}"
           sh "${env.SKIP_PATH}/release.sh ${env.WORKSPACE} ${TARGET}"
-          DO_RUN=skip()
           RELEASE=release()
         }
       }
