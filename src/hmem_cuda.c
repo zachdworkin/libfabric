@@ -302,7 +302,8 @@ int cuda_dev_unregister(uint64_t handle)
 	return FI_SUCCESS;
 }
 
-int cuda_get_handle(void *dev_buf, size_t size, void **handle)
+int cuda_get_handle(void *dev_buf, size_t size, uint64_t device, uint64_t id,
+		    void **handle)
 {
 	cudaError_t cuda_ret;
 
@@ -731,7 +732,8 @@ int cuda_dev_unregister(uint64_t handle)
 	return FI_SUCCESS;
 }
 
-int cuda_get_handle(void *dev_buf, size_t size, void **handle)
+int cuda_get_handle(void *dev_buf, size_t size, uint64_t device, uint64_t id,
+		    void **handle)
 {
 	return -FI_ENOSYS;
 }

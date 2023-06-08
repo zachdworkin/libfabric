@@ -392,9 +392,10 @@ ssize_t ofi_copy_to_hmem_iov(enum fi_hmem_iface hmem_iface, uint64_t device,
 }
 
 int ofi_hmem_get_handle(enum fi_hmem_iface iface, void *base_addr,
-			size_t size, void **handle)
+			size_t size, uint64_t device, uint64_t id,
+			void **handle)
 {
-	return hmem_ops[iface].get_handle(base_addr, size, handle);
+	return hmem_ops[iface].get_handle(base_addr, size, device, id, handle);
 }
 
 int ofi_hmem_open_handle(enum fi_hmem_iface iface, void **handle,

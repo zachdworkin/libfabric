@@ -626,7 +626,8 @@ int rocr_get_base_addr(const void *ptr, void **base, size_t *size)
 	return rocr_host_memory_ptr((void*)ptr, base, NULL, size, NULL, NULL);
 }
 
-int rocr_get_handle(void *dev_buf, size_t size, void **handle)
+int rocr_get_handle(void *dev_buf, size_t size, uint64_t device, uint64_t id,
+		    void **handle)
 {
 	hsa_status_t hsa_ret;
 
@@ -1018,7 +1019,8 @@ int rocr_host_unregister(void *ptr)
 	return -FI_ENOSYS;
 }
 
-int rocr_get_handle(void *dev_buf, size_t size, void **handle)
+int rocr_get_handle(void *dev_buf, size_t size, uint64_t device, uint64_t id,
+		    void **handle)
 {
 	return -FI_ENOSYS;
 }

@@ -408,7 +408,7 @@ static int smr_format_ze_ipc(struct smr_ep *ep, int64_t id, struct smr_cmd *cmd,
 }
 
 static int smr_format_ipc(struct smr_cmd *cmd, void *ptr, size_t len,
-		struct smr_region *smr, struct smr_resp *resp,
+		struct smr_region *smr, struct smr_resp *resp, uint64_t id,
 		enum fi_hmem_iface iface, uint64_t device)
 {
 	int ret;
@@ -425,8 +425,8 @@ static int smr_format_ipc(struct smr_cmd *cmd, void *ptr, size_t len,
 		return ret;
 
 	ret = ofi_hmem_get_handle(cmd->msg.data.ipc_info.iface, base,
-				   cmd->msg.data.ipc_info.base_length,
-				   (void **)&cmd->msg.data.ipc_info.ipc_handle);
+				cmd->msg.data.ipc_info.base_length, device, id,
+				(void **)&cmd->msg.data.ipc_info.ipc_handle);
 	if (ret)
 		return ret;
 
@@ -799,7 +799,7 @@ static ssize_t smr_do_ipc(struct smr_ep *ep, struct smr_region *peer_smr, int64_
 					resp, pend);
 	} else {
 		ret = smr_format_ipc(cmd, iov[0].iov_base, total_len, ep->region,
-				     resp, desc[0]->iface, desc[0]->device);
+				     resp, id, desc[0]->iface, desc[0]->device);
 	}
 
 	if (ret) {

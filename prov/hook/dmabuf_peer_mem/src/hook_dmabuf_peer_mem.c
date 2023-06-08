@@ -121,7 +121,7 @@ static inline int get_dmabuf_fd(void *buf, size_t len)
 	int fd, fd2;
 	int err;
 
-	err = ze_hmem_get_handle(buf, len, &handle);
+	err = ze_hmem_get_handle(buf, len, 0, 0, &handle);
 	if (err)
 		return err;
 
@@ -131,7 +131,7 @@ static inline int get_dmabuf_fd(void *buf, size_t len)
 	if (!first)
 		goto end;
 
-	err = ze_hmem_get_handle(buf, len, &handle);
+	err = ze_hmem_get_handle(buf, len, 0, 0, &handle);
 	if (err)
 		goto end;
 
