@@ -1,7 +1,5 @@
 /*
- * Copyright (c) 2019 Amazon.com, Inc. or its affiliates.
- * Copyright (c) 2020-2021 Intel Corporation.
- * All rights reserved.
+ * (C) Copyright (c) 2022 Amazon.com, Inc. or its affiliates.
  *
  * This software is available to you under a choice of one of two
  * licenses.  You may choose to be licensed under the terms of the GNU
@@ -32,52 +30,41 @@
  * SOFTWARE.
  */
 
-#ifndef _SMR_SIGNAL_H_
-#define _SMR_SIGNAL_H_
-#include <signal.h>
-#include <ofi_shm.h>
+#include "ofi_mr.h"
+
+#if HAVE_ZE
+
 #include "ofi_hmem.h"
-#include "smr.h"
+#include <level_zero/ze_api.h>
 
-extern struct sigaction *old_action;
-
-static void smr_handle_signal(int signum, siginfo_t *info, void *ucontext)
+static bool ze_ipc_monitor_valid(struct ofi_mem_monitor *monitor,
+			const struct ofi_mr_info *info,
+			struct ofi_mr_entry *entry)
 {
-	struct smr_ep_name *ep_name;
-	int ret;
-
-	dlist_foreach_container(&ep_name_list, struct smr_ep_name,
-				ep_name, entry) {
-		shm_unlink(ep_name->name);
-	}
-	unlink(sock_name);
-
-	/* Register the original signum handler, SIG_DFL or otherwise */
-	ret = sigaction(signum, &old_action[signum], NULL);
-	if (ret)
-		return;
-
-	/* call the original handler */
-	if (old_action[signum].sa_flags & SA_SIGINFO)
-		old_action[signum].sa_sigaction(signum, info, ucontext);
-	else
-		raise(signum);
-
+	//TODO double check this comparison
+	return (memcmp((void **)&info->ipc_handle,
+		(void **)&entry->info.ipc_handle,
+		sizeof(ze_ipc_mem_handle_t)) == 0);
 }
 
-static inline void smr_reg_sig_handler(int signum)
+#else
+
+static bool ze_ipc_monitor_valid(struct ofi_mem_monitor *monitor,
+			const struct ofi_mr_info *info,
+			struct ofi_mr_entry *entry)
 {
-	struct sigaction action;
-	int ret;
-
-	memset(&action, 0, sizeof(action));
-	action.sa_sigaction = smr_handle_signal;
-	action.sa_flags |= SA_SIGINFO | SA_ONSTACK;
-
-	ret = sigaction(signum, &action, &old_action[signum]);
-	if (ret)
-		FI_WARN(&smr_prov, FI_LOG_FABRIC,
-			"Unable to register handler for sig %d\n", signum);
+	return false;
 }
 
-#endif /* _SMR_SIGNAL_H_ */
+#endif /* HAVE_ZE */
+static struct ofi_mem_monitor ze_ipc_monitor_ = {
+	.init = ofi_monitor_init,
+	.cleanup = ofi_monitor_cleanup,
+	.start = ofi_monitor_start_no_op,
+	.stop = ofi_monitor_stop_no_op,
+	.subscribe = ofi_monitor_subscribe_no_op,
+	.unsubscribe = ofi_monitor_unsubscribe_no_op,
+	.valid = ze_ipc_monitor_valid,
+};
+
+struct ofi_mem_monitor *ze_ipc_monitor = &ze_ipc_monitor_;

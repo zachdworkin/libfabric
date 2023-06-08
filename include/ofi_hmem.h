@@ -40,6 +40,7 @@
 
 #include <rdma/fi_domain.h>
 #include <stdbool.h>
+#include <sys/un.h>
 #include "ofi_mr.h"
 
 extern bool ofi_hmem_disable_p2p;
@@ -188,6 +189,11 @@ int cuda_gdrcopy_dev_unregister(uint64_t handle);
 int cuda_set_sync_memops(void *ptr);
 
 #define ZE_MAX_DEVICES 8
+#define ZE_SOCK_NAME_MAX sizeof(((struct sockaddr_un *)0)->sun_path)
+#define ZE_MAX_PEERS 256
+
+extern char sock_name[ZE_SOCK_NAME_MAX];
+
 int ze_hmem_copy(uint64_t device, void *dst, const void *src, size_t size);
 int ze_hmem_init(void);
 int ze_hmem_cleanup(void);
@@ -208,6 +214,7 @@ int ze_hmem_get_id(const void *ptr, uint64_t *id);
 int *ze_hmem_get_dev_fds(int *nfds);
 int ze_hmem_host_register(void *ptr, size_t size);
 int ze_hmem_host_unregister(void *ptr);
+void ze_map_peer(int64_t id, pid_t pid, int64_t peer_id);
 
 int neuron_copy_to_dev(uint64_t device, void *dev, const void *host, size_t size);
 int neuron_copy_from_dev(uint64_t device, void *host, const void *dev, size_t size);

@@ -541,10 +541,8 @@ static struct smr_pend_entry *smr_progress_ipc(struct smr_cmd *cmd,
 {
 	struct smr_region *peer_smr;
 	struct smr_resp *resp;
-	void *base, *ptr;
-	uint64_t ipc_device;
-	int64_t id;
-	int ret, fd, ipc_fd;
+	void *ptr;
+	int ret;
 	ssize_t hmem_copy_ret;
 	struct ofi_mr_entry *mr_entry;
 	struct smr_domain *domain;
@@ -557,27 +555,14 @@ static struct smr_pend_entry *smr_progress_ipc(struct smr_cmd *cmd,
 	resp = smr_get_ptr(peer_smr, cmd->msg.hdr.src_data);
 
 	//TODO disable IPC if more than 1 interface is initialized
-	if (cmd->msg.data.ipc_info.iface == FI_HMEM_ZE) {
-		id = cmd->msg.hdr.id;
-		ipc_device = cmd->msg.data.ipc_info.device;
-		fd = ep->sock_info->peers[id].device_fds[ipc_device];
-		ret = ze_hmem_open_shared_handle(fd,
-				(void **) &cmd->msg.data.ipc_info.ipc_handle,
-				&ipc_fd, ipc_device, &base);
-	} else {
-		ret = ofi_ipc_cache_search(domain->ipc_cache,
-					   cmd->msg.hdr.id,
-					   &cmd->msg.data.ipc_info,
-					   &mr_entry);
-	}
+	ret = ofi_ipc_cache_search(domain->ipc_cache, cmd->msg.hdr.id,
+				   &cmd->msg.data.ipc_info, &mr_entry);
 	if (ret)
 		goto out;
 
-	if (cmd->msg.data.ipc_info.iface == FI_HMEM_ZE)
-		ptr = (char *) base + (uintptr_t) cmd->msg.data.ipc_info.offset;
-	else
-		ptr = (char *) (uintptr_t) mr_entry->info.ipc_mapped_addr +
-		      (uintptr_t) cmd->msg.data.ipc_info.offset;
+
+	ptr = (char *) (uintptr_t) mr_entry->info.ipc_mapped_addr +
+	      (uintptr_t) cmd->msg.data.ipc_info.offset;
 
 	if (cmd->msg.data.ipc_info.iface == FI_HMEM_ROCR) {
 		*total_len = 0;
@@ -605,15 +590,7 @@ static struct smr_pend_entry *smr_progress_ipc(struct smr_cmd *cmd,
 					iov_count, 0, ptr, cmd->msg.hdr.size);
 	}
 
-	if (cmd->msg.data.ipc_info.iface == FI_HMEM_ZE) {
-		close(ipc_fd);
-		/* Truncation error takes precedence over close_handle error */
-		ret = ofi_hmem_close_handle(cmd->msg.data.ipc_info.iface,
-					    cmd->msg.data.ipc_info.ipc_handle,
-					    base);
-	} else {
-		ofi_mr_cache_delete(domain->ipc_cache, mr_entry);
-	}
+	ofi_mr_cache_delete(domain->ipc_cache, mr_entry);
 
 	if (hmem_copy_ret < 0)
 		*err = hmem_copy_ret;

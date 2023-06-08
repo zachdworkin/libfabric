@@ -176,6 +176,7 @@ void ofi_monitors_init(void)
 	rocr_monitor->init(rocr_monitor);
 	rocr_ipc_monitor->init(rocr_ipc_monitor);
 	ze_monitor->init(ze_monitor);
+	ze_ipc_monitor->init(ze_ipc_monitor);
 	import_monitor->init(import_monitor);
 
 	fi_param_define(NULL, "mr_cache_max_size", FI_PARAM_SIZE_T,
