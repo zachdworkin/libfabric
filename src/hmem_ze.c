@@ -36,7 +36,10 @@
 
 #include "ofi_hmem.h"
 #include "ofi_mem.h"
+#include "ofi_epoll.h"
 #include "ofi.h"
+
+char sock_name[ZE_SOCK_NAME_MAX];
 
 #if HAVE_ZE
 
@@ -372,6 +375,307 @@ ze_result_t ofi_zexDriverReleaseImportedPointer(ze_driver_handle_t hDriver,
 #include <sys/ioctl.h>
 #include <stdio.h>
 
+#define ZE_SOCK_PATH	"/dev/shm/ze_"
+
+struct ze_handle {
+	ze_ipc_mem_handle_t	handle;
+	int			ioctl_fd;
+};
+
+enum ze_cmap_state {
+	ZE_CMAP_INIT = 0,
+	ZE_CMAP_SUCCESS,
+	ZE_CMAP_FAILED,
+};
+
+struct ze_cmap_entry {
+	enum ze_cmap_state	state;
+	pid_t			pid;
+	int64_t			peer_id;
+	int			device_fds[ZE_MAX_DEVICES];
+};
+
+struct ze_sock_info {
+	char			name[ZE_SOCK_NAME_MAX];
+	int			listen_sock;
+	ofi_epoll_t		epollfd;
+	struct fd_signal	signal;
+	pthread_t		listener_thread;
+	struct ze_cmap_entry	peers[ZE_MAX_PEERS];
+};
+
+struct ze_sock_info *ze_sock = NULL;
+
+static int ze_sendmsg_fd(int sock, int64_t id)
+{
+	struct msghdr msg;
+	struct cmsghdr *cmsg;
+	struct iovec iov;
+	char *ctrl_buf;
+	size_t ctrl_size;
+	int ret;
+
+	ctrl_size = sizeof(*dev_fds) * num_devices;
+	ctrl_buf = calloc(CMSG_SPACE(ctrl_size), 1);
+	if (!ctrl_buf)
+		return -FI_ENOMEM;
+
+	iov.iov_base = &ze_sock->peers[id].peer_id;
+	iov.iov_len = sizeof(ze_sock->peers[id].peer_id);
+
+	memset(&msg, 0, sizeof(msg));
+	msg.msg_control = ctrl_buf;
+	msg.msg_controllen = CMSG_SPACE(ctrl_size);
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
+
+	cmsg = CMSG_FIRSTHDR(&msg);
+	cmsg->cmsg_level = SOL_SOCKET;
+	cmsg->cmsg_type = SCM_RIGHTS;
+	cmsg->cmsg_len = CMSG_LEN(ctrl_size);
+	memcpy(CMSG_DATA(cmsg), dev_fds, ctrl_size);
+
+	ret = sendmsg(sock, &msg, 0);
+	ret = ret == sizeof(ze_sock->peers[id].peer_id) ? FI_SUCCESS : -FI_EIO;
+
+	free(ctrl_buf);
+	return ret;
+}
+
+static int ze_recvmsg_fd(int sock, int64_t *id)
+{
+	struct msghdr msg;
+	struct cmsghdr *cmsg;
+	struct iovec iov;
+	char *ctrl_buf;
+	size_t ctrl_size;
+	int ret;
+
+	ctrl_size = sizeof(*dev_fds) * num_devices;
+	ctrl_buf = calloc(CMSG_SPACE(ctrl_size), 1);
+	if (!ctrl_buf)
+		return -FI_ENOMEM;
+
+	iov.iov_base = id;
+	iov.iov_len = sizeof(*id);
+
+	memset(&msg, 0, sizeof(msg));
+	msg.msg_control = ctrl_buf;
+	msg.msg_controllen = CMSG_SPACE(ctrl_size);
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
+
+	ret = recvmsg(sock, &msg, 0);
+	if (ret == sizeof(*id)) {
+		ret = FI_SUCCESS;
+	} else {
+		ret = -FI_EIO;
+		goto out;
+	}
+
+	assert(!(msg.msg_flags & (MSG_TRUNC | MSG_CTRUNC)));
+	cmsg = CMSG_FIRSTHDR(&msg);
+	assert(cmsg && cmsg->cmsg_len == CMSG_LEN(ctrl_size) &&
+	       cmsg->cmsg_level == SOL_SOCKET &&
+	       cmsg->cmsg_type == SCM_RIGHTS && CMSG_DATA(cmsg));
+	memcpy(ze_sock->peers[*id].device_fds, CMSG_DATA(cmsg), ctrl_size);
+out:
+	free(ctrl_buf);
+	return ret;
+}
+
+static void *ze_start_listener(void *args)
+{
+	struct sockaddr_un sockaddr;
+	struct ofi_epollfds_event events[ZE_MAX_PEERS + 1];
+	int i, ret, poll_fds, sock = -1;
+	socklen_t len = sizeof(sockaddr);
+	int64_t id;
+
+	// ep->region->flags |= SMR_FLAG_IPC_SOCK; //TODO
+	while (1) {
+		poll_fds = ofi_epoll_wait(ze_sock->epollfd, events,
+					  ZE_MAX_PEERS + 1, -1);
+
+		if (poll_fds < 0)
+			continue;
+
+		for (i = 0; i < poll_fds; i++) {
+			if (!events[i].data.ptr)
+				goto out;
+
+			sock = accept(ze_sock->listen_sock,
+				      (struct sockaddr *) &sockaddr, &len);
+			if (sock < 0)
+				continue;
+
+			ret = ze_recvmsg_fd(sock, &id);
+			if (!ret) {
+				ret = ze_sendmsg_fd(sock, id);
+				ze_sock->peers[id].state =
+					ret ? ZE_CMAP_FAILED : ZE_CMAP_SUCCESS;
+			}
+
+			close(sock);
+			unlink(sockaddr.sun_path);
+		}
+	}
+out:
+	close(ze_sock->listen_sock);
+	unlink(ze_sock->name);
+	return NULL;
+}
+
+static int ze_init_epoll(void)
+{
+	int ret;
+
+	ret = ofi_epoll_create(&ze_sock->epollfd);
+	if (ret < 0)
+		return ret;
+
+	ret = fd_signal_init(&ze_sock->signal);
+	if (ret < 0)
+		goto err2;
+
+	ret = ofi_epoll_add(ze_sock->epollfd,
+	                    ze_sock->signal.fd[FI_READ_FD],
+	                    OFI_EPOLL_IN, NULL);
+	if (ret != 0)
+		goto err1;
+
+	ret = ofi_epoll_add(ze_sock->epollfd, ze_sock->listen_sock,
+			    OFI_EPOLL_IN, &ze_sock);
+	if (ret != 0)
+		goto err1;
+
+	return FI_SUCCESS;
+err1:
+	ofi_epoll_close(ze_sock->epollfd);
+err2:
+	fd_signal_free(&ze_sock->signal);
+	return ret;
+}
+
+void ze_ep_exchange_fds(int64_t id)
+{
+	struct sockaddr_un server_sockaddr = {0}, client_sockaddr = {0};
+	pid_t pid1, pid2;
+	int ret = -1, sock = -1;
+
+	if (getpid() == ze_sock->peers[id].pid)
+		goto out;
+
+	sock = socket(AF_UNIX, SOCK_STREAM, 0);
+	if (sock < 0)
+		goto out;
+	if (getpid() < ze_sock->peers[id].pid) {
+		pid1 = getpid();
+		pid2 = ze_sock->peers[id].pid;
+	} else {
+		pid1 = ze_sock->peers[id].pid;
+		pid2 = getpid();
+	}
+	client_sockaddr.sun_family = AF_UNIX;
+	snprintf(client_sockaddr.sun_path, ZE_SOCK_NAME_MAX, "%s%d:%d",
+		 ZE_SOCK_PATH, pid1, pid2);
+
+	ret = bind(sock, (struct sockaddr *) &client_sockaddr,
+		  (socklen_t) sizeof(client_sockaddr));
+	if (ret == -1) {
+		if (errno != EADDRINUSE) {
+			ze_sock->peers[id].state = ZE_CMAP_FAILED;
+		}
+		close(sock);
+		return;
+	}
+
+	server_sockaddr.sun_family = AF_UNIX;
+	snprintf(server_sockaddr.sun_path, ZE_SOCK_NAME_MAX, "%s%d",
+		 ZE_SOCK_PATH, ze_sock->peers[id].pid);
+
+	ret = connect(sock, (struct sockaddr *) &server_sockaddr,
+		      sizeof(server_sockaddr));
+	if (ret == -1)
+		goto cleanup;
+
+	ret = ze_sendmsg_fd(sock, id);
+	if (ret)
+		goto cleanup;
+
+	ret = ze_recvmsg_fd(sock, &id);
+
+cleanup:
+	close(sock);
+	unlink(client_sockaddr.sun_path);
+out:
+	ze_sock->peers[id].state = ret ? ZE_CMAP_FAILED : ZE_CMAP_SUCCESS;
+}
+
+void ze_map_peer(int64_t id, pid_t pid, int64_t peer_id)
+{
+	if (ze_sock) {
+		ze_sock->peers[id].pid = pid;
+		ze_sock->peers[id].peer_id = peer_id;
+	}
+}
+
+static void ze_cleanup_epoll(void)
+{
+	fd_signal_free(&ze_sock->signal);
+	ofi_epoll_close(ze_sock->epollfd);
+}
+
+static void ze_init_ipc_socket(void)
+{
+	struct sockaddr_un sockaddr = {0};
+	int ret;
+
+	ze_sock = calloc(1, sizeof(*ze_sock));
+	if (!ze_sock)
+		return;
+
+	ze_sock->listen_sock = socket(AF_UNIX, SOCK_STREAM, 0);
+	if (ze_sock->listen_sock < 0)
+		goto free;
+
+	sockaddr.sun_family = AF_UNIX;
+	snprintf(sockaddr.sun_path, ZE_SOCK_NAME_MAX,
+		 "%s%ld", ZE_SOCK_PATH, (long) getpid());
+
+	ret = bind(ze_sock->listen_sock, (struct sockaddr *) &sockaddr,
+		   (socklen_t) sizeof(sockaddr));
+	if (ret)
+		goto close;
+
+	ret = listen(ze_sock->listen_sock, ZE_MAX_PEERS);
+	if (ret)
+		goto close;
+
+	ret = ze_init_epoll();
+	if (ret)
+		goto close;
+
+	memcpy(ze_sock->name, sockaddr.sun_path, strlen(sockaddr.sun_path));
+	memcpy(sock_name, &sockaddr.sun_path, strlen(sockaddr.sun_path));
+
+	ret = pthread_create(&ze_sock->listener_thread, NULL,
+			     &ze_start_listener, NULL);
+	if (ret)
+		goto remove;
+
+	return;
+
+remove:
+	memset(sock_name, 0, ZE_SOCK_NAME_MAX);
+	ze_cleanup_epoll();
+close:
+	close(ze_sock->listen_sock);
+	unlink(sockaddr.sun_path);
+free:
+	free(ze_sock);
+}
+
 static int ze_hmem_init_fds(void)
 {
 	const char *dev_dir = "/dev/dri/by-path/";
@@ -401,6 +705,7 @@ static int ze_hmem_init_fds(void)
 		i++;
 	}
 	(void) closedir(dir);
+	ze_init_ipc_socket();
 	return FI_SUCCESS;
 
 err:
@@ -738,6 +1043,15 @@ static int ze_hmem_cleanup_internal(int fini_workaround)
 		}
 	}
 
+	if (ze_sock) {
+		fd_signal_set(&ze_sock->signal);
+		pthread_join(ze_sock->listener_thread, NULL);
+		close(ze_sock->listen_sock);
+		unlink(ze_sock->name);
+		ze_cleanup_epoll();
+		free(ze_sock);
+	}
+
 	if (!fini_workaround) {
 		if (ofi_zeContextDestroy(context))
 			ret = -FI_EINVAL;
@@ -996,45 +1310,81 @@ bool ze_hmem_is_addr_valid(const void *addr, uint64_t *device, uint64_t *flags)
 	return true;
 }
 
+//TODO fix uint64_t id to int64_t id
 int ze_hmem_get_handle(void *dev_buf, size_t size, uint64_t device, uint64_t id,
 		       void **handle)
 {
 	ze_result_t ze_ret;
+	struct drm_prime_handle open_fd = {0, 0, 0};
+	struct ze_handle *ze_handle = (struct ze_handle *) handle;
 
-	ze_ret = ofi_zeMemGetIpcHandle(context, dev_buf,
-				       (ze_ipc_mem_handle_t *) handle);
+	if (ze_sock->peers[id].state == ZE_CMAP_INIT)
+		ze_ep_exchange_fds(id);
+	if (ze_sock->peers[id].state != ZE_CMAP_SUCCESS)
+		return -FI_EAGAIN;
+
+	assert(dev_fds[device] != -1);
+	ze_ret = ofi_zeMemGetIpcHandle(context, dev_buf, &ze_handle->handle);
 	if (ze_ret) {
 		FI_WARN(&core_prov, FI_LOG_CORE, "Unable to get handle\n");
 		return -FI_EINVAL;
 	}
 
+	memcpy(&open_fd.fd, &ze_handle->handle, sizeof(open_fd.fd));
+	ze_ret = ioctl(dev_fds[device], DRM_IOCTL_PRIME_FD_TO_HANDLE, &open_fd);
+	if (ze_ret) {
+		FI_WARN(&core_prov, FI_LOG_CORE,
+			"ioctl call failed on get, err %d\n", errno);
+		return -FI_EINVAL;
+	}
+
+	*(int *) &ze_handle->handle = open_fd.handle;
 	return FI_SUCCESS;
 }
 
+/*
+ * Handle passed in is ze__ipc_mem_handle_t
+ * We need to save both the handle and the ioctl fd to be closed later in
+ * the ze_handle
+ */
 int ze_hmem_open_handle(void **handle, size_t size, uint64_t device, int64_t id,
 			void **ipc_ptr)
 {
 	ze_result_t ze_ret;
 	int dev_id = ze_get_device_idx(device);
+	struct drm_prime_handle open_fd = {0, 0, 0};
+	struct ze_handle *ze_handle = (struct ze_handle *) handle;
 
 	/* only device memory is supported */
 	assert(!ze_get_driver_idx(device) && dev_id >= 0);
+	open_fd.flags = DRM_CLOEXEC | DRM_RDWR;
+	open_fd.handle = *(int *) handle;
 
+	ze_ret = ioctl(ze_sock->peers[id].device_fds[device],
+		    DRM_IOCTL_PRIME_HANDLE_TO_FD, &open_fd);
+	if (ze_ret) {
+		FI_WARN(&core_prov, FI_LOG_CORE,
+			"ioctl call failed on open, err %d\n", errno);
+		return -FI_EINVAL;
+	}
+
+	memcpy(&ze_handle->handle, &open_fd.fd, sizeof(open_fd.fd));
 	ze_ret = ofi_zeMemOpenIpcHandle(context, devices[dev_id],
-					*((ze_ipc_mem_handle_t *) handle),
-					0, ipc_ptr);
+					ze_handle->handle, 0, ipc_ptr);
 	if (ze_ret) {
 		FI_WARN(&core_prov, FI_LOG_CORE,
 			"Unable to open memory handle\n");
 		return -FI_EINVAL;
 	}
 
+	ze_handle->ioctl_fd = open_fd.fd;
 	return FI_SUCCESS;
 }
 
 int ze_hmem_close_handle(void *handle, void *ipc_ptr)
 {
 	ze_result_t ze_ret;
+	struct ze_handle *ze_handle = (struct ze_handle *) handle;
 
 	ze_ret = ofi_zeMemCloseIpcHandle(context, ipc_ptr);
 	if (ze_ret) {
@@ -1043,12 +1393,13 @@ int ze_hmem_close_handle(void *handle, void *ipc_ptr)
 		return -FI_EINVAL;
 	}
 
+	close(ze_handle->ioctl_fd);
 	return FI_SUCCESS;
 }
 
 int ze_hmem_get_ipc_handle_size(size_t *size)
 {
-	*size = sizeof(ze_ipc_mem_handle_t);
+	*size = sizeof(struct ze_handle);
 	return FI_SUCCESS;
 }
 
@@ -1183,6 +1534,11 @@ int ze_hmem_get_ipc_handle_size(size_t *size)
 int ze_hmem_get_base_addr(const void *ptr, void **base, size_t *size)
 {
 	return -FI_ENOSYS;
+}
+
+void ze_map_id_pid(int64_t id, pid_t pid)
+{
+	/* NO OP */
 }
 
 int ze_hmem_get_id(const void *ptr, uint64_t *id)

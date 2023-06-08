@@ -96,12 +96,11 @@ void smr_cma_check(struct smr_region *smr, struct smr_region *peer_smr)
 size_t smr_calculate_size_offsets(size_t tx_count, size_t rx_count,
 				  size_t *cmd_offset, size_t *resp_offset,
 				  size_t *inject_offset, size_t *sar_offset,
-				  size_t *peer_offset, size_t *name_offset,
-				  size_t *sock_offset)
+				  size_t *peer_offset, size_t *name_offset)
 {
 	size_t cmd_queue_offset, resp_queue_offset, inject_pool_offset;
 	size_t sar_pool_offset, peer_data_offset, ep_name_offset;
-	size_t tx_size, rx_size, total_size, sock_name_offset;
+	size_t tx_size, rx_size, total_size;
 
 	tx_size = roundup_power_of_two(tx_count);
 	rx_size = roundup_power_of_two(rx_count);
@@ -119,8 +118,6 @@ size_t smr_calculate_size_offsets(size_t tx_count, size_t rx_count,
 	ep_name_offset = peer_data_offset + sizeof(struct smr_peer_data) *
 		SMR_MAX_PEERS;
 
-	sock_name_offset = ep_name_offset + SMR_NAME_MAX;
-
 	if (cmd_offset)
 		*cmd_offset = cmd_queue_offset;
 	if (resp_offset)
@@ -133,10 +130,8 @@ size_t smr_calculate_size_offsets(size_t tx_count, size_t rx_count,
 		*peer_offset = peer_data_offset;
 	if (name_offset)
 		*name_offset = ep_name_offset;
-	if (sock_offset)
-		*sock_offset = sock_name_offset;
 
-	total_size = sock_name_offset + SMR_SOCK_NAME_MAX;
+	total_size = ep_name_offset + SMR_NAME_MAX;
 
 	/*
  	 * Revisit later to see if we really need the size adjustment, or
@@ -198,7 +193,7 @@ int smr_create(const struct fi_provider *prov, struct smr_map *map,
 	struct smr_ep_name *ep_name;
 	size_t total_size, cmd_queue_offset, peer_data_offset;
 	size_t resp_queue_offset, inject_pool_offset, name_offset;
-	size_t sar_pool_offset, sock_name_offset;
+	size_t sar_pool_offset;
 	int fd, ret, i;
 	void *mapped_addr;
 	size_t tx_size, rx_size;
@@ -208,7 +203,7 @@ int smr_create(const struct fi_provider *prov, struct smr_map *map,
 	total_size = smr_calculate_size_offsets(tx_size, rx_size, &cmd_queue_offset,
 					&resp_queue_offset, &inject_pool_offset,
 					&sar_pool_offset, &peer_data_offset,
-					&name_offset, &sock_name_offset);
+					&name_offset);
 
 	fd = shm_open(attr->name, O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
 	if (fd < 0) {
@@ -294,7 +289,6 @@ int smr_create(const struct fi_provider *prov, struct smr_map *map,
 	(*smr)->sar_pool_offset = sar_pool_offset;
 	(*smr)->peer_data_offset = peer_data_offset;
 	(*smr)->name_offset = name_offset;
-	(*smr)->sock_name_offset = sock_name_offset;
 	(*smr)->max_sar_buf_per_peer = SMR_BUF_BATCH_MAX;
 
 	smr_cmd_queue_init(smr_cmd_queue(*smr), rx_size);
@@ -463,7 +457,7 @@ void smr_map_to_endpoint(struct smr_region *region, int64_t id)
 	local_peers[id].addr.name[SMR_NAME_MAX - 1] = '\0';
 
 	peer_smr = smr_peer_region(region, id);
-
+	ze_map_peer(id, peer_smr->pid, region->map->peers[id].peer.id);
 	if ((region != peer_smr && region->cma_cap_peer == SMR_CMA_CAP_NA) ||
 	    (region == peer_smr && region->cma_cap_self == SMR_CMA_CAP_NA))
 		smr_cma_check(region, peer_smr);

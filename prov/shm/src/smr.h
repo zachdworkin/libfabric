@@ -59,7 +59,6 @@
 #include <ofi_rbuf.h>
 #include <ofi_list.h>
 #include <ofi_signal.h>
-#include <ofi_epoll.h>
 #include <ofi_util.h>
 #include <ofi_atomic.h>
 #include <ofi_iov.h>
@@ -197,8 +196,6 @@ struct smr_domain {
 #define SMR_PREFIX	"fi_shm://"
 #define SMR_PREFIX_NS	"fi_ns://"
 
-#define SMR_ZE_SOCK_PATH	"/dev/shm/ze_"
-
 #define SMR_RMA_ORDER (OFI_ORDER_RAR_SET | OFI_ORDER_RAW_SET | FI_ORDER_RAS |	\
 		       OFI_ORDER_WAR_SET | OFI_ORDER_WAW_SET | FI_ORDER_WAS |	\
 		       FI_ORDER_SAR | FI_ORDER_SAW)
@@ -214,33 +211,6 @@ static inline void *smr_get_ptr(void *base, uint64_t offset)
 {
 	return (char *) base + (uintptr_t) offset;
 }
-
-struct smr_sock_name {
-	char name[SMR_SOCK_NAME_MAX];
-	struct dlist_entry entry;
-};
-
-enum smr_cmap_state {
-	SMR_CMAP_INIT = 0,
-	SMR_CMAP_SUCCESS,
-	SMR_CMAP_FAILED,
-};
-
-struct smr_cmap_entry {
-	enum smr_cmap_state	state;
-	int			device_fds[ZE_MAX_DEVICES];
-};
-
-struct smr_sock_info {
-	char			name[SMR_SOCK_NAME_MAX];
-	int			listen_sock;
-	ofi_epoll_t		epollfd;
-	struct fd_signal	signal;
-	pthread_t		listener_thread;
-	int			*my_fds;
-	int			nfds;
-	struct smr_cmap_entry	peers[SMR_MAX_PEERS];
-};
 
 struct smr_srx_ctx {
 	struct fid_peer_srx	peer_srx;
@@ -279,7 +249,6 @@ struct smr_ep {
 	struct dlist_entry	ipc_cpy_pend_list;
 
 	int			ep_idx;
-	struct smr_sock_info	*sock_info;
 	void			*dsa_context;
 };
 
