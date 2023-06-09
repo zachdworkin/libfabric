@@ -1025,7 +1025,8 @@ int rocr_get_handle(void *dev_buf, size_t size, uint64_t device, uint64_t id,
 	return -FI_ENOSYS;
 }
 
-int rocr_open_handle(void **handle, size_t len, uint64_t device, void **ipc_ptr)
+int rocr_open_handle(void **handle, size_t len, uint64_t device, int64_t id,
+		     void **ipc_ptr)
 {
 	return -FI_ENOSYS;
 }

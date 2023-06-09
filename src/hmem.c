@@ -399,9 +399,10 @@ int ofi_hmem_get_handle(enum fi_hmem_iface iface, void *base_addr,
 }
 
 int ofi_hmem_open_handle(enum fi_hmem_iface iface, void **handle,
-			size_t size, uint64_t device, void **mapped_addr)
+			size_t size, uint64_t device, int64_t id,
+			void **mapped_addr)
 {
-	return hmem_ops[iface].open_handle(handle, size, device,
+	return hmem_ops[iface].open_handle(handle, size, device, id,
 					   mapped_addr);
 }
 

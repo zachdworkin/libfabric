@@ -40,6 +40,7 @@ static int ipc_cache_add_region(struct ofi_mr_cache *cache, struct ofi_mr_entry 
 
 	ret = ofi_hmem_open_handle(entry->info.iface, (void **)&entry->info.ipc_handle,
 				   entry->info.iov.iov_len, entry->info.device,
+				   entry->info.peer_id,
 				   &entry->info.ipc_mapped_addr);
 	if (ret == -FI_EALREADY) {
 		/*
@@ -61,6 +62,7 @@ static int ipc_cache_add_region(struct ofi_mr_cache *cache, struct ofi_mr_entry 
 		ofi_mr_cache_flush(cache, false);
 		ret = ofi_hmem_open_handle(entry->info.iface, (void **)&entry->info.ipc_handle,
 						entry->info.iov.iov_len, entry->info.device,
+						entry->info.peer_id,
 						&entry->info.ipc_mapped_addr);
 	}
 	if (ret) {
