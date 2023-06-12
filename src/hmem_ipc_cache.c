@@ -76,7 +76,7 @@ static int ipc_cache_add_region(struct ofi_mr_cache *cache, struct ofi_mr_entry 
 static void ipc_cache_delete_region(struct ofi_mr_cache *cache,
 				     struct ofi_mr_entry *entry)
 {
-	ofi_hmem_close_handle(entry->info.iface,
+	ofi_hmem_close_handle(entry->info.iface, entry->info.ipc_handle,
 			      entry->info.ipc_mapped_addr);
 }
 

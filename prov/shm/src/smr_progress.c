@@ -608,7 +608,9 @@ static struct smr_pend_entry *smr_progress_ipc(struct smr_cmd *cmd,
 	if (cmd->msg.data.ipc_info.iface == FI_HMEM_ZE) {
 		close(ipc_fd);
 		/* Truncation error takes precedence over close_handle error */
-		ret = ofi_hmem_close_handle(cmd->msg.data.ipc_info.iface, base);
+		ret = ofi_hmem_close_handle(cmd->msg.data.ipc_info.iface,
+					    cmd->msg.data.ipc_info.ipc_handle,
+					    base);
 	} else {
 		ofi_mr_cache_delete(domain->ipc_cache, mr_entry);
 	}

@@ -1032,7 +1032,7 @@ int ze_hmem_open_handle(void **handle, size_t size, uint64_t device, int64_t id,
 	return FI_SUCCESS;
 }
 
-int ze_hmem_close_handle(void *ipc_ptr)
+int ze_hmem_close_handle(void *handle, void *ipc_ptr)
 {
 	ze_result_t ze_ret;
 
@@ -1165,7 +1165,7 @@ int ze_hmem_open_shared_handle(int dev_fd, void **handle, int *ze_fd,
 	return -FI_ENOSYS;
 }
 
-int ze_hmem_close_handle(void *ipc_ptr)
+int ze_hmem_close_handle(void *handle, void *ipc_ptr)
 {
 	return -FI_ENOSYS;
 }
