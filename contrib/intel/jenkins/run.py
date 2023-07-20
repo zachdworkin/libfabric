@@ -14,7 +14,8 @@ import cloudbees_config
 # jobs but with the same branch name.
 fab = os.environ['FABRIC']
 if 'slurm' in fab:
-    fab = cloudbees_config.fabric_map[f"{os.environ['SLURM_JOB_PARTITION']}"]
+    idx = f"{os.environ['SLURM_JOB_PARTITION'].split(',')[0]}"
+    fab = cloudbees_config.fabric_map[idx]
 
 jbname = os.environ['JOB_NAME']#args.jobname
 bno = os.environ['BUILD_NUMBER']#args.buildno

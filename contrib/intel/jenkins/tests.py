@@ -1062,21 +1062,11 @@ class DMABUFTest(Test):
     def execute_cmd(self, test_type):
         os.chdir(self.DMABUFtestpath)
         server_cmd = ''
-        print("Before if statmnt")
         if 'H2H' in test_type or 'D2H' in test_type:
             server_cmd = f"{self.cmd} -m malloc -p {self.core_prov}"
         else:
             server_cmd = f"{self.cmd} -m device -d 0 -p {self.core_prov}"
-        print(server_cmd)
 
-        #if os.path.exists(self.DMABUFtestpath):
-        #    print('DMABUF Path Exists\n')
-        #else:
-        #    print('DMABUF Path Does Not Exist\n')
-        #common.run_command(shlex.split(f"ls {self.DMABUFtestpath}"))
-
-        # This loop is for running single node tests with pvc6 as both
-        # server and client.
         for test in self.tests[test_type]:
             if 'send' in test:
                 command = f"{server_cmd} -t {test} "

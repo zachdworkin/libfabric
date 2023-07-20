@@ -3,7 +3,7 @@ import groovy.transform.Field
 properties([disableConcurrentBuilds(abortPrevious: true)])
 @Field def DO_RUN=true
 @Field def TARGET="main"
-@Field def SCRIPT_LOCATION="py_scripts/contrib/intel/jenkins"
+@Field def SCRIPT_LOCATION="contrib/intel/jenkins"
 @Field def RELEASE=false
 @Field def BUILD_MODES=["reg", "dbg", "dl"]
 @Field def MPI_TYPES=["impi", "mpich", "ompi"]
@@ -14,6 +14,20 @@ def run_python(version, command, output=null) {
     sh "python$version $command >> $output"
   else
     sh "python$version $command"
+}
+
+def slurm_allocation(partition, node_num, output, command) {
+  try {
+    /*sh """timeout 3600 srun --partition=${partition} -N ${node_num} -n 2 \
+          --cpus-per-task = 1 -o ${output} --open-mode=append ${command}\
+       """*/
+      sh "timeout 3600 salloc --partition=${partition} -N ${node_num} ${command}"
+  } catch (Exception e) {
+    /*sh "scancel \$(cat ${output} | grep SLURM_JOBID | cut -d \"=\" -f 2)"
+    sh "cat ${output}"*/
+    error("Build failed ${e}")
+  }
+  /*sh "cat ${output}"*/
 }
 
 def slurm_batch(partition, node_num, output, command) {
@@ -50,17 +64,17 @@ def run_fabtests(stage_name, partition, node_num, prov, util=null,
 }
 
 def run_middleware(providers, stage_name, test, partition, node_num, mpi=null,
-                   imb_grp=null) {
+                   imb_grp=0) {
   def base_cmd = "python3.9 runtests.py --test=${test}"
   def opts = ""
   def prefix = "${env.LOG_DIR}/${stage_name}_"
   def suffix = "_${test}_reg"
-  if (mpi) {
+  if (mpi != null) {
     base_cmd = "${base_cmd} --mpi=${mpi}"
     suffix = "_${mpi}${suffix}"
   }
 
-  if (imb_grp)
+  if (imb_grp > 0)
     base_cmd = "${base_cmd} --imb_grp=${imb_grp}"
 
   for (prov in providers) {
@@ -74,8 +88,14 @@ def run_middleware(providers, stage_name, test, partition, node_num, mpi=null,
       output = "${prefix}${prov[0]}${suffix}"
     }
 
-    slurm_batch("${partition}", "${node_num}", "${output}",
+    if(stage_name == "DMABUF-Tests") {
+      log = "${env.LOG_DIR}/${stage_name}_verbs-rxm_dmabuf_${mode}"
+      slurm_allocation("${partition}", "${node_num}",
+                "${command} ${opts} --ofi_build_mode=${mode} --log_file=${log}")
+    } else {
+      slurm_batch("${partition}", "${node_num}", "${output}",
                 "${base_cmd} ${opts}")
+    }
   }
 }
 
@@ -97,9 +117,9 @@ def summarize(item, verbose=false, release=false, send_mail=false) {
   if (release) {
     cmd = "${cmd} --release "
   }
-  if (send_mail) {
+  /*if (send_mail) {
     cmd = "${cmd} --send_mail "
-  }
+  }*/
 
   run_python(PYTHON_VERSION, cmd)
 }
@@ -231,7 +251,7 @@ pipeline {
   }
 
   stages {
-    stage ('opt-out') {
+    /*stage ('opt-out') {
       steps {
         script {
           TARGET=check_target()
@@ -251,7 +271,7 @@ pipeline {
           }
         }
       }
-    }
+    }*/
     stage ('parallel-builds') {
       when { equals expected: true, actual: DO_RUN }
       parallel {
@@ -262,16 +282,16 @@ pipeline {
               build("builddir")
               echo "Copying log dirs."
               build("logdir", null, null, RELEASE)
-              for (mode in  BUILD_MODES) {
+              /*for (mode in  BUILD_MODES) {
                 echo "Building Libfabric $mode"
                 build("libfabric", "$mode")
                 echo "Building Fabtests $mode"
                 build("fabtests", "$mode")
-              }
+              }*/
             }
           }
         }
-        stage ('build-daos') {
+       /* stage ('build-daos') {
           agent {
             node {
               label 'daos_head'
@@ -286,8 +306,8 @@ pipeline {
               build("fabtests", "reg")
             }
           }
-        }
-        stage ('build-dsa') {
+        }*/
+        /*stage ('build-dsa') {
           agent {
             node {
               label 'dsa'
@@ -302,7 +322,7 @@ pipeline {
               build("fabtests", "reg")
             }
           }
-        }
+        }*/
         stage ('build-gpu') {
           agent {
             node {
@@ -325,7 +345,7 @@ pipeline {
     stage('parallel-tests') {
       when { equals expected: true, actual: DO_RUN }
       parallel {
-        stage('MPI_verbs-rxm') {
+        /*stage('MPI_verbs-rxm') {
           steps {
             script {
               dir (RUN_LOCATION) {
@@ -490,7 +510,7 @@ pipeline {
           steps {
             script {
               dir (RUN_LOCATION) {
-                run_middleware([["tcp", "rxm"]/*, ["psm3", null]*/], "oneCCL",
+                run_middleware([["tcp", "rxm"]/*, ["psm3", null]*//*], "oneCCL",
                                "oneccl", "bulbasaur", "2")
               }
             }
@@ -517,8 +537,8 @@ pipeline {
               } 
             }
           }
-        }
-        stage('daos_tcp') {
+        }*/
+        /*stage('daos_tcp') {
           agent { node { label 'daos_tcp' } }
           options { skipDefaultCheckout() }
           steps {
@@ -545,20 +565,22 @@ pipeline {
               }
             }
           }
-        }
+        }*/
 	stage ('DMABUF-Tests') {
           agent { node { label 'ze' } }
           options { skipDefaultCheckout() }
           steps {
             script {
               dir ("${env.WORKSPACE}/${SCRIPT_LOCATION}/") {
-                run_middleware([["verbs", "rxm"]], "DMABUF-Tests", "dmabuf",
-                               "fabrics-ci", "2")
+                /*run_middleware([["verbs", "rxm"]], "DMABUF-Tests", "dmabuf",
+                               "fabrics-ci", "1")*/
+		run_middleware([["verbs", "rxm"]], "DMABUF-Tests", "dmabuf",
+			       "fabrics-ci", "2")
               }
             }
           }
         }
-        stage ('ze-shm') {
+        /*stage ('ze-shm') {
           steps {
             script {
               dir (RUN_LOCATION) {
@@ -632,21 +654,21 @@ pipeline {
               }
             }
           }
-        }
+        }*/
       }
     }
     stage ('Summary') {
       when { equals expected: true, actual: DO_RUN }
       steps {
         script {
-          gather_logs("${env.DAOS_ADDR}", "${env.DAOS_KEY}", "${env.LOG_DIR}",
+          /*gather_logs("${env.DAOS_ADDR}", "${env.DAOS_KEY}", "${env.LOG_DIR}",
                       "${env.LOG_DIR}")
           gather_logs("${env.DSA_ADDR}", "${env.DSA_KEY}", "${env.LOG_DIR}",
-                      "${env.LOG_DIR}")
+                      "${env.LOG_DIR}")*/
           gather_logs("${env.ZE_ADDR}", "${env.ZE_KEY}", "${env.LOG_DIR}",
                       "${env.LOG_DIR}")
 
-          summarize("all", verbose=false, release=RELEASE, send_mail=env.WEEKLY)
+          summarize("all", verbose=false, release=RELEASE, send_mail=false)
           if (RELEASE) {
             save_summary()
           }
@@ -667,19 +689,19 @@ pipeline {
       }
     }
     aborted {
-      node ('daos_head') {
+      /*node ('daos_head') {
         dir ("${DELETE_LOCATION}/middlewares") { deleteDir() }
       }
       node ('dsa') {
         dir ("${DELETE_LOCATION}/middlewares") { deleteDir() }
-      }
+      }*/
       node ('ze') {
         dir ("${DELETE_LOCATION}/middlewares") { deleteDir() }
       }
       dir ("${DELETE_LOCATION}/middlewares") { deleteDir() }
     }
     cleanup {
-      node ('daos_head') {
+      /*node ('daos_head') {
         dir ("${DELETE_LOCATION}") { deleteDir() }
         dir("${env.WORKSPACE}") { deleteDir() }
         dir("${env.WORKSPACE}@tmp") { deleteDir() }
@@ -688,7 +710,7 @@ pipeline {
         dir("${DELETE_LOCATION}") { deleteDir() }
         dir("${env.WORKSPACE}") { deleteDir() }
         dir("${env.WORKSPACE}@tmp") { deleteDir() }
-      }
+      }*/
       node ('ze') {
         dir("${DELETE_LOCATION}") { deleteDir() }
         dir("${env.WORKSPACE}") { deleteDir() }
