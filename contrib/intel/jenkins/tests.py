@@ -8,6 +8,7 @@ import re
 import cloudbees_config
 import common
 import shlex
+import time
 
 # A Jenkins env variable for job name is composed of the name of the jenkins job and the branch name
 # it is building for. for e.g. in our case jobname = 'ofi_libfabric/master'
@@ -1005,3 +1006,91 @@ class DaosCartTest(Test):
             common.run_logging_command(outputcmd, self.log_file)
             print("--------------------TEST COMPLETED----------------------")
         os.chdir(curdir)
+
+class DMABUFTest(Test):
+
+    def __init__(self, jobname, buildno, testname, core_prov, fabric,
+                 hosts, ofi_build_mode, user_env, util_prov=None):
+
+        super().__init__(jobname, buildno, testname, core_prov, fabric,
+                         hosts, ofi_build_mode, user_env, None, util_prov)
+        self.DMABUFtestpath = f'{self.libfab_installpath}/bin'
+        self.timeout = 300
+        if util_prov:
+            self.prov = f'{self.core_prov}\;{self.util_prov}'
+        else:
+            self.prov = self.core_prov
+        self.dmabuf_environ = {
+            'ZEX_NUMBER_OF_CCS'       : '0:4,1:4',
+            'NEOReadDebugKeys'        : '1',
+            'EnableImplicitScaling'   : '0',
+            'MLX5_SCATTER_TO_CQE'     : '0'
+        }
+
+        self.tests = {
+                'H2H'   : [
+                            'read',
+                            'write',
+                            'send'
+                        ],
+                'H2D'   : [
+                            'read',
+                            'write',
+                            'send'
+                        ],
+                'D2H'   : [
+                            'read',
+                            'write',
+                            'send'
+                        ],
+                'D2D'   : [
+                            'read',
+                            'write',
+                            'send'
+                        ]
+        }
+
+    @property
+    def execute_condn(self):
+        return True if (self.core_prov == 'verbs') \
+                    else False
+
+    @property
+    def cmd(self):
+        return f"{self.DMABUFtestpath}/fi_xe_rdmabw"
+
+    def execute_cmd(self, test_type):
+        os.chdir(self.DMABUFtestpath)
+        server_cmd = ''
+        print("Before if statmnt")
+        if 'H2H' in test_type or 'D2H' in test_type:
+            server_cmd = f"{self.cmd} -m malloc -p {self.core_prov}"
+        else:
+            server_cmd = f"{self.cmd} -m device -d 0 -p {self.core_prov}"
+        print(server_cmd)
+
+        #if os.path.exists(self.DMABUFtestpath):
+        #    print('DMABUF Path Exists\n')
+        #else:
+        #    print('DMABUF Path Does Not Exist\n')
+        #common.run_command(shlex.split(f"ls {self.DMABUFtestpath}"))
+
+        # This loop is for running single node tests with pvc6 as both
+        # server and client.
+        for test in self.tests[test_type]:
+            if 'send' in test:
+                command = f"{server_cmd} -t {test} "
+            else:
+                command = f"{server_cmd} "
+            if (len(self.hosts) == 2):
+                client_command = f"{server_cmd} -t {test} {self.client} "
+            else:
+                client_command = f"{server_cmd} -t {test} {self.server} "
+            common.ClientServerTest(
+                    command, client_command,
+                    f"{os.environ['LOG_DIR']}/server.log",
+                    f"{os.environ['LOG_DIR']}/client.log",
+                    self.timeout, self.dmabuf_environ
+            ).run()
+            print("--------------------TEST COMPLETED----------------------")
+

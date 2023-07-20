@@ -546,6 +546,18 @@ pipeline {
             }
           }
         }
+	stage ('DMABUF-Tests') {
+          agent { node { label 'ze' } }
+          options { skipDefaultCheckout() }
+          steps {
+            script {
+              dir ("${env.WORKSPACE}/${SCRIPT_LOCATION}/") {
+                run_middleware([["verbs", "rxm"]], "DMABUF-Tests", "dmabuf",
+                               "fabrics-ci", "2")
+              }
+            }
+          }
+        }
         stage ('ze-shm') {
           steps {
             script {
