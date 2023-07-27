@@ -194,6 +194,7 @@ pipeline {
   environment {
       JOB_CADENCE = 'PR'
       LOG_DIR = "${env.JOB_INSTALL_DIR}/${env.JOB_NAME}/${env.BUILD_NUMBER}/log_dir"
+      WITH_ENV="'PATH+EXTRA=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin:$PYTHONPATH'"
   }
 
   stages {
@@ -581,7 +582,7 @@ pipeline {
           }
           when { equals expected: true, actual: DO_RUN }
           steps {
-            withEnv(['PATH+EXTRA=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin/:$PYTHONPATH']) {
+            withEnv(["${WITH_ENV}"]) {
               sh """
               env
               (
@@ -594,42 +595,42 @@ pipeline {
           }
         }
       }
-      stage ('Summary') {
-        when { equals expected: true, actual: DO_RUN }
-        steps {
-          script {
-            gather_logs("${env.DAOS_ADDR}", "${env.DAOS_KEY}", "${env.LOG_DIR}",
-                        "${env.LOG_DIR}")
-            // gather_logs("${env.DSA_ADDR}", "${env.DSA_KEY}", "${env.LOG_DIR}",
-            //             "${env.LOG_DIR}")
-            gather_logs("${env.ZE_ADDR}", "${env.ZE_KEY}", "${env.LOG_DIR}",
-                        "${env.LOG_DIR}")
-          }
-          withEnv(['PATH+EXTRA=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin/:$PYTHONPATH']) {
-            sh """
-              env
-              (
-                if [[ ${RELEASE} = true ]]; then
-                  python3.9 ${env.WORKSPACE}/${SCRIPT_LOCATION}/summary.py --summary_item=all --release
-                else
-                  python3.9 ${env.WORKSPACE}/${SCRIPT_LOCATION}/summary.py --summary_item=all
-                fi
-                echo "------------"
-                if [[ ${RELEASE} = true ]]; then
-                  mkdir -p ${env.WORKSPACE}/internal
-                  rm -rf ${env.WORKSPACE}/internal/*
-                  git clone https://${env.PAT}@github.com/${env.INTERNAL} ${env.WORKSPACE}/internal
-                  cd ${env.WORKSPACE}/internal
-                  mkdir -p ${env.WORKSPACE}/internal/summaries
-                  cp ${env.WORKSPACE}/summary_*.log ${env.WORKSPACE}/internal/summaries/
-                  git add ${env.WORKSPACE}/internal/summaries/
-                  git commit -am \"add ${env.JOB_NAME}'s summary\"
-                  git pull -r origin master
-                  git push origin master
-                fi
-              )
-            """
-          }
+    }
+    stage ('Summary') {
+      when { equals expected: true, actual: DO_RUN }
+      steps {
+        script {
+          gather_logs("${env.DAOS_ADDR}", "${env.DAOS_KEY}", "${env.LOG_DIR}",
+                      "${env.LOG_DIR}")
+          // gather_logs("${env.DSA_ADDR}", "${env.DSA_KEY}", "${env.LOG_DIR}",
+          //             "${env.LOG_DIR}")
+          gather_logs("${env.ZE_ADDR}", "${env.ZE_KEY}", "${env.LOG_DIR}",
+                      "${env.LOG_DIR}")
+        }
+        withEnv(["${WITH_ENV}"]) {
+          sh """
+            env
+            (
+              if [[ ${RELEASE} = true ]]; then
+                python3.9 ${env.WORKSPACE}/${SCRIPT_LOCATION}/summary.py --summary_item=all --release
+              else
+                python3.9 ${env.WORKSPACE}/${SCRIPT_LOCATION}/summary.py --summary_item=all
+              fi
+              echo "------------"
+              if [[ ${RELEASE} = true ]]; then
+                mkdir -p ${env.WORKSPACE}/internal
+                rm -rf ${env.WORKSPACE}/internal/*
+                git clone https://${env.PAT}@github.com/${env.INTERNAL} ${env.WORKSPACE}/internal
+                cd ${env.WORKSPACE}/internal
+                mkdir -p ${env.WORKSPACE}/internal/summaries
+                cp ${env.WORKSPACE}/summary_*.log ${env.WORKSPACE}/internal/summaries/
+                git add ${env.WORKSPACE}/internal/summaries/
+                git commit -am \"add ${env.JOB_NAME}'s summary\"
+                git pull -r origin master
+                git push origin master
+              fi
+            )
+          """
         }
       }
     }
@@ -637,33 +638,33 @@ pipeline {
 
   post {
     always {
-      withEnv(['PATH+EXTRA=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin:$PYTHONPATH']) {
+      withEnv(["${WITH_ENV}"]) {
         sh "python3.9 ${env.WORKSPACE}/${SCRIPT_LOCATION}/summary.py --summary_item=all"
       }
     }
     aborted {
       node ('daos_head') {
-        withEnv(['PATH+EXTRA=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin:$PYTHONPATH']) {
+        withEnv(["${WITH_ENV}"]) {
           dir ("${env.JOB_INSTALL_DIR}/${env.JOB_NAME}/${env.BUILD_NUMBER}/middlewares") {
             deleteDir()
           }
         }
       }
       node ('dsa') {
-        withEnv(['PATH+EXTRA=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin:$PYTHONPATH']) {
+        withEnv(["${WITH_ENV}"]) {
           dir ("${env.JOB_INSTALL_DIR}/${env.JOB_NAME}/${env.BUILD_NUMBER}/middlewares") {
             deleteDir()
           }
         }
       }
       node ('ze') {
-        withEnv(['PATH+EXTRA=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin:$PYTHONPATH']) {
+        withEnv(["${WITH_ENV}"]) {
           dir ("${env.JOB_INSTALL_DIR}/${env.JOB_NAME}/${env.BUILD_NUMBER}/middlewares") {
             deleteDir()
           }
         }
       }
-      withEnv(['PATH+EXTRA=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin:$PYTHONPATH']) {
+      withEnv(["${WITH_ENV}"]) {
         dir ("${env.JOB_INSTALL_DIR}/${env.JOB_NAME}/${env.BUILD_NUMBER}/middlewares") {
           deleteDir()
         }
@@ -671,7 +672,7 @@ pipeline {
     }
     cleanup {
       node ('daos_head') {
-        withEnv(['PATH+EXTRA=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin:$PYTHONPATH']) {
+        withEnv(["${WITH_ENV}"]) {
           dir ("${env.JOB_INSTALL_DIR}/${env.JOB_NAME}/${env.BUILD_NUMBER}") {
             deleteDir()
           }
@@ -684,7 +685,20 @@ pipeline {
         }
       }
       node ('dsa') {
-        withEnv(['PATH+EXTRA=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin:$PYTHONPATH']) {
+        withEnv(["${WITH_ENV}"]) {
+          dir ("${env.JOB_INSTALL_DIR}/${env.JOB_NAME}/${env.BUILD_NUMBER}") {
+            deleteDir()
+          }
+          dir("${env.WORKSPACE}") {
+            deleteDir()
+          }
+          dir("${env.WORKSPACE}@tmp") {
+            deleteDir()
+          }
+        }
+      }
+      node ('ze') {
+        withEnv(["${WITH_ENV}"]) {
           dir ("${env.JOB_INSTALL_DIR}/${env.JOB_NAME}/${env.BUILD_NUMBER}") {
             deleteDir()
           }
@@ -709,7 +723,7 @@ pipeline {
           }
         }
       }
-      withEnv(['PATH+EXTRA=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin:$PYTHONPATH']) {
+      withEnv([${WITH_ENV}]) {
         dir ("${env.JOB_INSTALL_DIR}/${env.JOB_NAME}/${env.BUILD_NUMBER}") {
           deleteDir()
         }
