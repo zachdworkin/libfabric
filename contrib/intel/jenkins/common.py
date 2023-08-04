@@ -62,6 +62,7 @@ class ClientServerTest:
     def export_env(self, environment):
         for item in environment:
             os.environ[f'{item}'] = environment[item]
+            print(item)
         return os.environ.copy()
 
     def run(self):

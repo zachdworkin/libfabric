@@ -16,7 +16,7 @@ def run_python(version, command, output=null) {
     sh "python$version $command"
 }
 
-def slurm_allocation(partition, node_num, output, command) {
+def slurm_allocation(partition, node_num, command) {
   try {
     /*sh """timeout 3600 srun --partition=${partition} -N ${node_num} -n 2 \
           --cpus-per-task = 1 -o ${output} --open-mode=append ${command}\
