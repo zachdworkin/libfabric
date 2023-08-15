@@ -1010,12 +1010,15 @@ class DaosCartTest(Test):
 class DMABUFTest(Test):
 
     def __init__(self, jobname, buildno, testname, core_prov, fabric,
-                 hosts, ofi_build_mode, user_env, util_prov=None):
+                 hosts, ofi_build_mode, user_env, log_file, util_prov=None):
 
         super().__init__(jobname, buildno, testname, core_prov, fabric,
-                         hosts, ofi_build_mode, user_env, None, util_prov)
+                         hosts, ofi_build_mode, user_env, log_file, util_prov)
         self.DMABUFtestpath = f'{self.libfab_installpath}/bin'
         self.timeout = 300
+        self.n = os.environ['SLURM_NNODES'] if 'SLURM_NNODES' \
+                                                in os.environ.keys() \
+                                            else 0
         if util_prov:
             self.prov = f'{self.core_prov}\;{self.util_prov}'
         else:
@@ -1026,6 +1029,9 @@ class DMABUFTest(Test):
             'EnableImplicitScaling'   : '0',
             'MLX5_SCATTER_TO_CQE'     : '0'
         }
+
+        if self.log_file == '/dev/null':
+            self.log_file = None
 
         self.tests = {
                 'H2H'   : [
@@ -1072,15 +1078,16 @@ class DMABUFTest(Test):
                 command = f"{server_cmd} -t {test} "
             else:
                 command = f"{server_cmd} "
-            if (len(self.hosts) == 2):
-                client_command = f"{server_cmd} -t {test} {self.client} "
-            else:
-                client_command = f"{server_cmd} -t {test} {self.server} "
+            # if (len(self.hosts) == 2):
+            client_command = f"{server_cmd} -t {test} {self.server} "
+            # else:
+            #     client_command = f"{server_cmd} -t {test} {self.server} "
             common.ClientServerTest(
-                    command, client_command,
-                    f"{os.environ['LOG_DIR']}/server.log",
-                    f"{os.environ['LOG_DIR']}/client.log",
-                    self.timeout, self.dmabuf_environ
+                    f"ssh {self.server} {command}",
+                    f"ssh {self.client} {client_command}",
+                    f"{os.environ['LOG_DIR']}/dmabuf_{self.n}_server.log",
+                    f"{os.environ['LOG_DIR']}/dmabuf_{self.n}_client.log",
+                    self.log_file, self.timeout, self.dmabuf_environ
             ).run()
             print("--------------------TEST COMPLETED----------------------")
 

@@ -210,13 +210,13 @@ def daos_cart_tests(core, hosts, mode, user_env, log_file, util):
         runcarttests.execute_cmd()
     print('-------------------------------------------------------------------')
 
-def dmabuftests(core, hosts, mode, user_env, util):
+def dmabuftests(core, hosts, mode, user_env, log_file, util):
 
     rundmabuftests = tests.DMABUFTest(jobname=jbname,buildno=bno,
                                          testname="DMABUF Tests", core_prov=core,
                                          fabric=fab, hosts=hosts,
                                          ofi_build_mode=mode, user_env=user_env,
-                                         util_prov=util)
+                                         log_file=log_file, util_prov=util)
 
     print('-------------------------------------------------------------------')
     if (rundmabuftests.execute_condn):

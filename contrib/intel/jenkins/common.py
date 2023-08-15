@@ -49,13 +49,27 @@ def read_file(file_name):
         output = file_out.read()
     return output
 
+
+def combine_files(file1, file2, combine):
+    with open(file1) as file_out:
+        data1 = file_out.read()
+
+    with open(file2) as file_out:
+        data2 = file_out.read()
+
+    with open(combine, 'a') as combine_out:
+        combine_out.write(data1)
+        combine_out.write("\n")
+        combine_out.write(data2)
+
 class ClientServerTest:
-    def __init__(self, server_cmd, client_cmd, server_log, client_log,
+    def __init__(self, server_cmd, client_cmd, server_log, client_log, main_log,
                  timeout=None, env=None):
         self.server_cmd = server_cmd
         self.client_cmd = client_cmd
         self.server_log = server_log
         self.client_log = client_log
+        self.main_log = main_log
         self._timeout = timeout
         self._env = self.export_env(env)
 
@@ -98,6 +112,9 @@ class ClientServerTest:
         print(f"client_command: {self.client_cmd}")
         print('client_stdout:')
         print(client_output)
+
+        if (self.main_log != None):
+            combine_files(self.server_log, self.client_log, self.main_log)
 
         return (server_process.returncode, client_process.returncode)
 

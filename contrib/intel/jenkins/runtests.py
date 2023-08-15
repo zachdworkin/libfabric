@@ -145,7 +145,7 @@ if(args_core):
 
         if (run_test == 'all' or run_test == 'dmabuf'):
             run.dmabuftests(args_core, hosts, ofi_build_mode,
-                              user_env, args_util)
+                              user_env, log_file, args_util)
     else:
         run.ze_fabtests(args_core, hosts, ofi_build_mode, way, user_env, log_file,
                         args_util)

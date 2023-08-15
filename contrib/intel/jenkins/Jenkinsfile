@@ -572,10 +572,17 @@ pipeline {
           steps {
             script {
               dir ("${env.WORKSPACE}/${SCRIPT_LOCATION}/") {
+                output = "${LOG_DIR}/DMABUF-Tests_verbs-rxm_dmabuf"
+                cmd = """ python3.9 runtests.py --test=dmabuf \
+                          --prov=verbs --util=rxm"""//--log_file="""
+                slurm_batch("fabrics-ci", "1", "${output}_1_reg", "${cmd}")
+                slurm_batch("fabrics-ci", "2", "${output}_2_reg", "${cmd}")
+                // slurm_allocation("fabrics-ci", "1","${cmd}${output}_1_reg")
+                // slurm_allocation("fabrics-ci", "2", "${cmd}${output}_2_reg")
                 /*run_middleware([["verbs", "rxm"]], "DMABUF-Tests", "dmabuf",
                                "fabrics-ci", "1")*/
-		run_middleware([["verbs", "rxm"]], "DMABUF-Tests", "dmabuf",
-			       "fabrics-ci", "2")
+		// run_middleware([["verbs", "rxm"]], "DMABUF-Tests", "dmabuf",
+		// 	       "fabrics-ci", "2")
               }
             }
           }
