@@ -78,6 +78,16 @@ static ze_command_list_desc_t cl_desc = {
 	.flags				= 0,
 };
 
+static ze_command_queue_desc_t imm_cq_desc = {
+	.stype		= ZE_STRUCTURE_TYPE_COMMAND_QUEUE_DESC,
+	.pNext		= NULL,
+	.ordinal	= 0,
+	.index		= 0,
+	.flags		= 0,
+	.mode		= ZE_COMMAND_QUEUE_MODE_ASYNCHRONOUS,
+	.priority	= ZE_COMMAND_QUEUE_PRIORITY_NORMAL,
+};
+
 struct libze_ops {
 	ze_result_t (*zeInit)(ze_init_flags_t flags);
 	ze_result_t (*zeDriverGet)(uint32_t *pCount,
@@ -109,6 +119,11 @@ struct libze_ops {
 					   ze_device_handle_t hDevice,
 					   const ze_command_list_desc_t *desc,
 					   ze_command_list_handle_t *phCommandList);
+	ze_result_t (*zeCommandListCreateImmediate)(
+					ze_context_handle_t hContext,
+					ze_device_handle_t hDevice,
+					const ze_command_queue_desc_t *altdesc,
+					ze_command_list_handle_t *phCommandList);
 	ze_result_t (*zeCommandListDestroy)(ze_command_list_handle_t hCommandList);
 	ze_result_t (*zeCommandListClose)(ze_command_list_handle_t hCommandList);
 	ze_result_t (*zeCommandListReset)(ze_command_list_handle_t hCommandList);
@@ -179,6 +194,7 @@ static struct libze_ops libze_ops = {
 	.zeCommandQueueDestroy = zeCommandQueueDestroy,
 	.zeCommandQueueExecuteCommandLists = zeCommandQueueExecuteCommandLists,
 	.zeCommandListCreate = zeCommandListCreate,
+	.zeCommandListCreateImmediate = zeCommandListCreateImmediate,
 	.zeCommandListDestroy = zeCommandListDestroy,
 	.zeCommandListClose = zeCommandListClose,
 	.zeCommandListReset = zeCommandListReset,
@@ -269,6 +285,15 @@ ze_result_t ofi_zeCommandListCreate(ze_context_handle_t hContext,
 {
 	return (*libze_ops.zeCommandListCreate)(hContext, hDevice, desc,
 						phCommandList);
+}
+
+ze_result_t ofi_zeCommandListCreateImmediate(ze_context_handle_t hContext,
+					ze_device_handle_t hDevice,
+					const ze_command_queue_desc_t *altdesc,
+					ze_command_list_handle_t *phCommandList)
+{
+	return (*libze_ops.zeCommandListCreateImmediate)(hContext, hDevice,
+							altdesc, phCommandList);
 }
 
 ze_result_t ofi_zeCommandListDestroy(ze_command_list_handle_t hCommandList)
@@ -868,6 +893,14 @@ static int ze_hmem_dl_init(void)
 	libze_ops.zeCommandListCreate = dlsym(libze_handle, "zeCommandListCreate");
 	if (!libze_ops.zeCommandListCreate) {
 		FI_WARN(&core_prov, FI_LOG_CORE, "Failed to find zeCommandListCreate\n");
+		goto err_dlclose;
+	}
+
+	libze_ops.zeCommandListCreateImmediate = dlsym(libze_handle,
+						"zeCommandListCreateImmediate");
+	if (!libze_ops.zeCommandListCreateImmediate) {
+		FI_WARN(&core_prov, FI_LOG_CORE,
+			"Failed to find zeCommandListCreateImmediate\n");
 		goto err_dlclose;
 	}
 
