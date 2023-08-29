@@ -3,9 +3,9 @@ import groovy.transform.Field
 properties([disableConcurrentBuilds(abortPrevious: true)])
 @Field def DO_RUN=true
 @Field def TARGET="main"
-@Field def SCRIPT_LOCATION="py_scripts/contrib/intel/jenkins"
+@Field def SCRIPT_LOCATION="contrib/intel/jenkins"
 @Field def RELEASE=false
-@Field def BUILD_MODES=["reg", "dbg", "dl"]
+@Field def BUILD_MODES=["reg"]
 @Field def MPI_TYPES=["impi", "mpich", "ompi"]
 @Field def PYTHON_VERSION="3.9"
 
@@ -219,7 +219,7 @@ def skip() {
 pipeline {
   agent {
     node {
-      label 'main'
+      label 'orpre-dnp-perf'
       customWorkspace "workspace/${JOB_NAME}/${env.BUILD_NUMBER}"
     }
   }
@@ -237,81 +237,19 @@ pipeline {
   }
 
   stages {
-    stage ('opt-out') {
-      steps {
-        script {
-          TARGET=check_target()
-          sh "mkdir ${env.WORKSPACE}/py_scripts"
-          sh "git clone --branch ${TARGET} ${env.UPSTREAM} ${env.WORKSPACE}/py_scripts"
-          sh "${env.SKIP_PATH}/skip.sh ${env.WORKSPACE} ${TARGET}"
-          sh "${env.SKIP_PATH}/release.sh ${env.WORKSPACE} ${TARGET}"
-          if (env.WEEKLY == null) {
-            weekly = false
-          } else {
-            weekly = env.WEEKLY.toBoolean()
-          }
-          skip = skip()
-          RELEASE = release()
-          if (skip && !weekly) {
-            DO_RUN=false
-          }
-        }
-      }
-    }
     stage ('parallel-builds') {
       when { equals expected: true, actual: DO_RUN }
       parallel {
         stage ('build') {
           steps {
             script {
-              dir (CUSTOM_WORKSPACE) {
-                echo "Copying build dirs."
-                build("builddir")
-                echo "Copying log dirs."
-                build("logdir", null, null, RELEASE)
-                for (mode in  BUILD_MODES) {
-                  echo "Building Libfabric $mode"
-                  build("libfabric", "$mode")
-                  echo "Building Fabtests $mode"
-                  build("fabtests", "$mode")
-                }
-              }
-            }
-          }
-        }
-        stage ('build-daos') {
-          agent {
-            node {
-              label 'daos_head'
-              customWorkspace CUSTOM_WORKSPACE
-            }
-          }
-          steps {
-            script {
-              checkout_py_scripts()
-              dir (CUSTOM_WORKSPACE) {
-                build("logdir")
-                build("libfabric", "reg", "daos")
-                build("fabtests", "reg")
-              }
-            }
-          }
-        }
-        stage ('build-gpu') {
-          agent {
-            node {
-              label 'ze'
-              customWorkspace CUSTOM_WORKSPACE
-            }
-          }
-          steps {
-            script {
-              checkout_py_scripts()
-              dir (CUSTOM_WORKSPACE) {
-                build("logdir")
-                build("builddir")
-                build("libfabric", "reg", "gpu")
-                build("fabtests", "reg")
+              echo "Copying log dirs."
+              build("logdir", null, null, RELEASE)
+              for (mode in  BUILD_MODES) {
+                echo "Building Libfabric $mode"
+                build("libfabric", "$mode")
+                echo "Building Fabtests $mode"
+                build("fabtests", "$mode")
               }
             }
           }
@@ -321,333 +259,13 @@ pipeline {
     stage('parallel-tests') {
       when { equals expected: true, actual: DO_RUN }
       parallel {
-        stage('MPI_verbs-rxm_IMB') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                def providers = [["verbs", "rxm"]]
-                for (mpi in MPI_TYPES) {
-                  for (imb_grp = 1; imb_grp < 4; imb_grp++) {
-                    run_middleware(providers, "MPI", "IMB",
-                                   "squirtle,totodile", "2", "${mpi}",
-                                   "${imb_grp}")
-                  }
-                }
-              }
-            }
-          }
-        }
-        stage('MPI_verbs-rxm_OSU') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                def providers = [["verbs", "rxm"]]
-                for (mpi in MPI_TYPES) {
-                  run_middleware(providers, "MPI", "osu", "squirtle,totodile",
-                                 "2", "${mpi}")
-                }
-              }
-            }
-          }
-        }
-        stage('MPI_tcp-rxm') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                def providers = [["tcp", "rxm"]]
-                for (mpi in MPI_TYPES) {
-                  for (imb_grp = 1; imb_grp < 4; imb_grp++) {
-                    run_middleware(providers, "MPI", "IMB",
-                                   "bulbasaur", "2", "${mpi}", "${imb_grp}")
-                  }
-                  run_middleware(providers, "MPI", "osu", "bulbasaur", "2",
-                                 "${mpi}")
-                }
-              }
-            }
-          }
-        }
         stage('tcp') {
            steps {
             script {
               dir (RUN_LOCATION) {
-                run_fabtests("tcp", "bulbasaur", "2", "tcp")
+                run_fabtests("tcp", "cluster", "2", "tcp")
               }
             }
-          }
-        }
-        stage('verbs-rxm') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_fabtests("verbs-rxm", "squirtle,totodile", "2", "verbs",
-                             "rxm")
-              }
-            }
-          }
-        }
-        stage('verbs-rxd') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_fabtests("verbs-rxd", "squirtle", "2", "verbs",
-                             "rxd")
-              }
-            }
-          }
-        }
-        stage('udp') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_fabtests("udp", "bulbasaur", "2", "udp")
-              }
-            }
-          }
-        }
-        stage('shm') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_fabtests("shm", "bulbasaur", "1", "shm")
-                run_fabtests("shm", "bulbasaur", "1", "shm", null,
-                            "FI_SHM_DISABLE_CMA=1")
-              }
-            }
-          }
-        }
-        stage('sockets') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_fabtests("sockets", "bulbasaur", "2", "sockets")
-              }
-            }
-          }
-        }
-        stage('ucx') {
-          steps {
-            script {
-              dir (CUSTOM_WORKSPACE) {
-                for (mode in BUILD_MODES) {
-                  echo "Building Libfabric $mode"
-                  build("libfabric", "${mode}", null, false, "--ucx")
-                  echo "Building Fabtests $mode"
-                  build("fabtests", "${mode}", null, false, "--ucx")
-                }
-              }
-              dir (RUN_LOCATION) {
-                run_fabtests("ucx", "totodile", "2", "ucx")
-              }
-            }
-          }
-        }
-        stage('psm3') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_fabtests("psm3", "squirtle", "2", "psm3", null,
-                            "PSM3_IDENTIFY=1")
-              }
-            }
-          }
-        }
-        stage('mpichtestsuite') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                def providers = [["verbs", "rxm"], ["tcp", null],
-                                 ["tcp", "rxm"], ["sockets", null]]
-                for (mpi in MPI_TYPES) {
-                  run_middleware(providers, "mpichtestsuite", "mpichtestsuite",
-                                 "squirtle,totodile", "2", "${mpi}")
-                }
-              }
-            }
-          }
-        }
-        stage('SHMEM') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_middleware([["verbs", null], ["tcp", null],
-                                ["sockets", null]], "SHMEM", "shmem",
-                                "squirtle,totodile", "2")
-              }
-            }
-          }
-        }
-        stage ('multinode_performance') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_middleware([["tcp", null]], "multinode_performance",
-                               "multinode", "bulbasaur", "2")
-              }
-            }
-          }
-        }
-        stage ('oneCCL') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_middleware([["tcp", "rxm"]/*, ["psm3", null]*/], "oneCCL",
-                               "oneccl", "bulbasaur", "2")
-              }
-            }
-          }
-        }
-        stage ('oneCCL-GPU') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_middleware([["verbs", "rxm"]], "oneCCL-GPU", "onecclgpu",
-                               "charmander", "2")
-              }
-            }
-          }
-        }
-        stage ('oneCCL-GPU-v3') {
-          agent { node { label 'ze' } }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_middleware([["verbs", "rxm"]], "oneCCL-GPU-v3", "onecclgpu",
-                               "fabrics-ci", "2")
-              } 
-            }
-          }
-        }
-        stage('daos_tcp') {
-          agent { node { label 'daos_tcp' } }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_python(PYTHON_VERSION,
-                           """runtests.py --prov='tcp' --util='rxm' \
-                           --test=daos \
-                           --log_file=${env.LOG_DIR}/daos_tcp-rxm_reg""")
-              }
-            }
-          }
-        }
-         stage('daos_verbs') {
-          agent { node { label 'daos_verbs' } }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_python(PYTHON_VERSION,
-                           """runtests.py --prov='verbs' --util='rxm' \
-                           --test=daos \
-                           --log_file=${env.LOG_DIR}/daos_verbs-rxm_reg""")
-              }
-            }
-          }
-        }
-        stage ('DMABUF-Tests') {
-          agent { node { label 'ze' } }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              dir ("${env.WORKSPACE}/${SCRIPT_LOCATION}/") {
-                output = "${LOG_DIR}/DMABUF-Tests_verbs-rxm_dmabuf_reg"
-                cmd = """ python3.9 runtests.py --test=dmabuf \
-                           --prov=verbs --util=rxm"""
-                slurm_batch("fabrics-ci", "1", "${output}", "${cmd}")
-              }
-            }
-          }
-        }
-        stage ('ze-shm') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                def providers = [["shm", null]]
-                def directions = ["h2d", "d2d", "xd2d"]
-                def base_cmd = "python3.9 runtests.py --device=ze"
-                def prefix = "${env.LOG_DIR}/ze_"
-                def suffix = "_reg"
-                for (prov in providers) {
-                  for (way in directions) {
-                    if (prov[1]) {
-                      echo "Running ${prov[0]}-${prov[1]} ze"
-                      slurm_batch("charmander", "1",
-                                "${prefix}${prov[0]}-${prov[1]}_${way}${suffix}",
-                                """${base_cmd} --prov=${prov[0]} \
-                                --util=${prov[1]} --way=${way}""")
-                    } else {
-                      echo "Running ${prov[0]} ze"
-                      slurm_batch("charmander", "1",
-                                  "${prefix}${prov[0]}_${way}${suffix}",
-                                  "${base_cmd} --prov=${prov[0]} --way=${way}")
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-        stage ('ze-shm-v3') {
-          agent { node { label 'ze' } }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                def providers = [["shm", null]]
-                def directions = ["h2d", "d2d", "xd2d"]
-                def base_cmd = "python3.9 runtests.py --device=ze"
-                def prefix = "${env.LOG_DIR}/ze_v3_"
-                def suffix = "_reg"
-                for (prov in providers) {
-                  for (way in directions) {
-                    if (prov[1]) {
-                      echo "Running ${prov[0]}-${prov[1]} ze"
-                      slurm_batch("fabrics-ci", "1",
-                                "${prefix}${prov[0]}-${prov[1]}_${way}${suffix}",
-                                """${base_cmd} --prov=${prov[0]} \
-                                --util=${prov[1]} --way=${way}""")
-                    } else {
-                      echo "Running ${prov[0]} ze"
-                      slurm_batch("fabrics-ci", "1",
-                                  "${prefix}${prov[0]}_${way}${suffix}",
-                                  "${base_cmd} --prov=${prov[0]} --way=${way}")
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-        stage('dsa') {
-          when { equals expected: true, actual: DO_RUN }
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_fabtests("shm_dsa", "mudkip", "1", "shm", null,
-                             """FI_SHM_DISABLE_CMA=1 FI_SHM_USE_DSA_SAR=1 \
-                                FI_LOG_LEVEL=warn""")
-              }
-            }
-          }
-        }
-      }
-    }
-    stage ('Summary') {
-      when { equals expected: true, actual: DO_RUN }
-      steps {
-        script {
-          gather_logs("${env.DAOS_ADDR}", "${env.DAOS_KEY}", "${env.LOG_DIR}",
-                      "${env.LOG_DIR}")
-          gather_logs("${env.ZE_ADDR}", "${env.ZE_KEY}", "${env.LOG_DIR}",
-                      "${env.LOG_DIR}")
-
-          summarize("all", verbose=false, release=RELEASE,
-                    send_mail=env.WEEKLY.toBoolean())
-          if (RELEASE) {
-            save_summary()
           }
         }
       }
@@ -655,37 +273,10 @@ pipeline {
   }
 
   post {
-    always {
-      script {
-        summarize("all")
-      }
-    }
-    success {
-      script {
-        summarize("all", verbose=true, release=false,
-        send_mail=env.WEEKLY.toBoolean())
-      }
-    }
     aborted {
-      node ('daos_head') {
-        dir ("${DELETE_LOCATION}/middlewares") { deleteDir() }
-      }
-      node ('ze') {
-        dir ("${DELETE_LOCATION}/middlewares") { deleteDir() }
-      }
       dir ("${DELETE_LOCATION}/middlewares") { deleteDir() }
     }
     cleanup {
-      node ('daos_head') {
-        dir ("${DELETE_LOCATION}") { deleteDir() }
-        dir("${env.WORKSPACE}") { deleteDir() }
-        dir("${env.WORKSPACE}@tmp") { deleteDir() }
-      }
-      node ('ze') {
-        dir("${DELETE_LOCATION}") { deleteDir() }
-        dir("${env.WORKSPACE}") { deleteDir() }
-        dir("${env.WORKSPACE}@tmp") { deleteDir() }
-      }
       dir("${DELETE_LOCATION}") { deleteDir() }
       dir("${env.WORKSPACE}") { deleteDir() }
       dir("${env.WORKSPACE}@tmp") { deleteDir() }

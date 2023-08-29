@@ -106,13 +106,13 @@ prov_list = [
    Prov('ucx', None)
 ]
 default_prov_list = [
-    'verbs',
+    # 'verbs',
     'tcp',
-    'sockets',
-    'udp',
-    'shm',
-    'psm3',
-    'ucx'
+    # 'sockets',
+    # 'udp',
+    # 'shm',
+    # 'psm3',
+    # 'ucx'
 ]
 daos_prov_list = [
     'verbs',
@@ -136,5 +136,5 @@ common_disable_list = [
     'opx'
 ]
 default_enable_list = [
-    'ze-dlopen'
+    # 'ze-dlopen'
 ]
