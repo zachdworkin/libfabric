@@ -1,0 +1,81 @@
+properties([disableConcurrentBuilds(abortPrevious: true)])
+
+pipeline {
+  agent {
+    node {
+      label 'performance'
+    }
+  }
+  options {
+      timestamps()
+      timeout(activity: true, time: 1, unit: 'HOURS')
+      skipDefaultCheckout(true)
+  }
+  stages {
+    stage ('checkout_fpf') {
+      steps {
+        script {
+          dir (env.WORKSPACE) {
+            // sh "git clone https://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@github.com/intel-innersource/libraries.networking.openfabrics-interfaces.fpf fpf"
+            sh "git clone https://${env.ZDWORKIN_PAT}@github.com/zachdworkin/libraries.networking.openfabrics-interfaces.scale-tests.git fpf"
+            // sh "git clone https://github.com/ofiwg/libfabric.git libfabric"
+          }
+        }
+      }
+    }
+    // stage ('build_libfabric') {
+    //   steps {
+    //     script {
+    //       dir (env.WORKSPACE) {
+    //         sh """
+    //           cd libfabric; \
+    //           ./autogen.sh; \
+    //           ./configure --prefix=${env.WORKSPACE}/libfabric_install \
+    //           --enable-verbs=yes \
+    //           --enable-tcp=yes \
+    //           --enable-sockets=yes \
+    //           --enable-udp=yes \
+    //           --enable-shm=yes \
+    //           --enable-psm3=yes \
+    //           --enable-usnic=no \
+    //           --enable-efa=no \
+    //           --enable-perf=no \
+    //           --enable-rstream=no \
+    //           --enable-hook_debug=no \
+    //           --enable-bgq=no \
+    //           --enable-mrail=no \
+    //           --enable-opx=no;
+    //           make -j install;
+    //         """
+    //       }
+    //     }
+    //   }
+    // }
+    stage ('build_and_run') {
+      steps {
+        script {
+          dir ("${env.WORKSPACE}") {
+            sh """cd fpf; \
+                  source ./bootstrap.sh /opt/intel/oneapi/latest/intelpython/latest; \
+                  env; \
+                  fpf \
+                  --slurm \
+                  --config ./configs/jfcst-perf_cloudbees_proof_of_concept_functional.json \
+                  -o ${env.WORKSPACE}/ci_test \
+                  --skip-comparisons \
+                  -v
+               """
+          }
+        }
+      }
+    }
+  }
+  post {
+    cleanup {
+      dir("${env.WORKSPACE}/fpf") { deleteDir() }
+      dir("${env.WORKSPACE}/fpf@tmp") { deleteDir() }
+      dir("${env.WORKSPACE}/ci_test") { deleteDir() }
+      dir("${env.WORKSPACE}@tmp") { deleteDir() }
+    }
+  }
+}
