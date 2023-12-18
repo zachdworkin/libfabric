@@ -113,9 +113,9 @@ def build_mpich_osu(install_path, libfab_installpath, hw_type):
 
 
 def copy_build_dir(install_path):
-	middlewares_path = f'{install_path}/middlewares'
+	middlewares_path = f'{install_path}/middlewares_old'
 	if (os.path.exists(middlewares_path) != True):
-		os.makedirs(f'{install_path}/middlewares')
+		os.makedirs(f'{install_path}/middlewares_old')
 
 	shutil.copytree(f'{cloudbees_config.build_dir}/shmem',
 					f'{middlewares_path}/shmem')
