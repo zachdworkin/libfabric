@@ -679,7 +679,7 @@ class MpichTestSuite(Test):
                          util_prov)
         self.mpi_type = mpitype
         if (mpitype != 'ompi'):
-            self.mpichsuitepath = f'{self.mpi.mpichpath}/test/mpi/'
+            self.mpichsuitepath = f'{self.mpi.mpich_dir}/mpichsuite/test/mpi/'
         self.pwd = os.getcwd()
         self.weekly = weekly
         self.mpichtests_exclude = {
@@ -733,7 +733,8 @@ class MpichTestSuite(Test):
 
     def execute_cmd(self):
         if (self.mpi_type == 'mpich'):
-            configure_cmd = f"./configure --with-mpi={self.mpi.mpich_dir} "
+            configure_cmd = f"./configure "\
+                            f"--with-mpi={self.mpi.mpich_dir}/mpich "
             if (self.weekly):
                 print(f'Weekly {self.mpi_type} mpichsuite tests')
                 os.chdir(self.mpichsuitepath)

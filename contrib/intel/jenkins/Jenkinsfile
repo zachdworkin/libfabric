@@ -393,8 +393,22 @@ pipeline {
               //               """python$PYTHON_VERSION ${RUN_LOCATION}/build.py \
               //                 --build_item=mpich --build_hw=water"""
               //             )
-
-              
+              def command = """sleep1; \
+                               source ./setup-env.sh; \
+                               spack env activate -d ${CUSTOM_WORKSPACE}/ci_resources/spack/envs/water; \
+                               spack config add config:install_tree:root:"${CUSTOM_WORKSPACE}/middlewares/mpich_water"; \
+                               spack external find --not-buildable --path=${CUSTOM_WORKSPACE}/water/reg libfabric; \
+                               spack concretize; \
+                               spack install --dirty
+                            """
+              dir ("${HOME}/spack/spack-configs") {
+                slurm_batch(
+                  "water",
+                  "1",
+                  "${env.LOG_DIR}/spack_water",
+                  "$command"
+                )
+              }
             }
           }
         }
