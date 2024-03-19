@@ -157,7 +157,7 @@ def copy_build_dir(install_path):
 					f'{middlewares_path}/shmem_grass')
 	shutil.copytree(f'{cloudbees_config.build_dir}/shmem_water',
 					f'{middlewares_path}/shmem_water')
-	shutil.copytree(f'{cloudbees_config.build_dir}/oneccl',
+	shutil.copytree(f'{cloudbees_config.build_dir}/oneCCL-2021.11.2',
 					f'{middlewares_path}/oneccl')
 	shutil.copytree(f'{cloudbees_config.build_dir}/mpich_water',
 					f'{middlewares_path}/mpich_water')
