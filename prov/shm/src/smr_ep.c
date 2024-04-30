@@ -289,9 +289,14 @@ static void smr_format_inject(struct smr_cmd *cmd, struct ofi_mr **mr,
 						 mr, iov, count, 0);
 }
 
+<<<<<<< current
 static void smr_format_iov(struct smr_cmd *cmd, const struct iovec *iov,
 		size_t count, size_t total_len, struct smr_region *smr,
 		struct smr_resp *resp)
+=======
+void smr_format_iov(struct smr_cmd *cmd, const struct iovec *iov,
+		    size_t count, size_t total_len)
+>>>>>>> patched
 {
 	cmd->msg.hdr.op_src = smr_src_iov;
 	cmd->msg.hdr.src_data = smr_get_offset(smr, resp);
@@ -300,9 +305,51 @@ static void smr_format_iov(struct smr_cmd *cmd, const struct iovec *iov,
 	memcpy(cmd->msg.data.iov, iov, sizeof(*iov) * count);
 }
 
+<<<<<<< current
 static int smr_format_ipc(struct smr_cmd *cmd, void *ptr, size_t len,
 			  struct smr_region *smr, struct smr_resp *resp,
 			  enum fi_hmem_iface iface, uint64_t device)
+=======
+int smr_format_ze_ipc(struct smr_ep *ep, int64_t id, struct smr_cmd *cmd,
+		const struct iovec *iov, size_t iov_count, uint64_t device,
+		size_t total_len, struct smr_region *smr)
+{
+	int ret;
+	void *base;
+	int fd;
+
+	cmd->msg.hdr.op_src = smr_src_ipc;
+	//cmd->msg.hdr.src_data = smr_get_offset(smr, resp);
+	cmd->msg.hdr.size = total_len;
+	cmd->msg.data.ipc_info.iface = FI_HMEM_ZE;
+
+	if (ep->sock_info->peers[id].state == SMR_CMAP_INIT)
+		smr_ep_exchange_fds(ep, id);
+	if (ep->sock_info->peers[id].state != SMR_CMAP_SUCCESS)
+		return -FI_EAGAIN;
+
+	ret = ze_hmem_get_base_addr(iov[0].iov_base, iov[0].iov_len, &base,
+				    NULL);
+	if (ret)
+		return ret;
+
+	ret = ze_hmem_get_shared_handle(device, base, &fd,
+			(void **) &cmd->msg.data.ipc_info.ipc_handle);
+	if (ret)
+		return ret;
+
+	cmd->msg.data.ipc_info.device = device;
+	cmd->msg.data.ipc_info.offset = (char *) iov[0].iov_base -
+					(char *) base;
+
+	return FI_SUCCESS;
+}
+
+int smr_format_ipc(struct smr_cmd *cmd, const struct iovec *iov,
+		size_t iov_count, size_t len,
+		struct smr_region *smr, enum fi_hmem_iface iface,
+		uint64_t device)
+>>>>>>> patched
 {
 	int ret;
 	void *base;
@@ -312,21 +359,33 @@ static int smr_format_ipc(struct smr_cmd *cmd, void *ptr, size_t len,
 	cmd->msg.hdr.size = len;
 	cmd->msg.data.ipc_info.iface = iface;
 	cmd->msg.data.ipc_info.device = device;
+<<<<<<< current
 
 	ret = ofi_hmem_get_base_addr(cmd->msg.data.ipc_info.iface, ptr,
 				     len, &base,
 				     &cmd->msg.data.ipc_info.base_length);
+=======
+	ret = ofi_hmem_get_base_addr(cmd->msg.data.ipc_info.iface,
+				iov->iov_base, len, &base,
+				&cmd->msg.data.ipc_info.base_length);
+>>>>>>> patched
 	if (ret)
 		return ret;
 
 	ret = ofi_hmem_get_handle(cmd->msg.data.ipc_info.iface, base,
+<<<<<<< current
 				  cmd->msg.data.ipc_info.base_length,
 				  (void **)&cmd->msg.data.ipc_info.ipc_handle);
+=======
+				cmd->msg.data.ipc_info.base_length,
+				(void **)&cmd->msg.data.ipc_info.ipc_handle);
+>>>>>>> patched
 	if (ret)
 		return ret;
 
 	cmd->msg.data.ipc_info.base_addr = (uintptr_t) base;
-	cmd->msg.data.ipc_info.offset = (uintptr_t) ptr - (uintptr_t) base;
+	cmd->msg.data.ipc_info.offset = (uintptr_t) iov->iov_base -
+					(uintptr_t) base;
 
 	return FI_SUCCESS;
 }
@@ -540,16 +599,51 @@ out:
 	return FI_SUCCESS;
 }
 
+<<<<<<< current
 int smr_select_proto(void **desc, size_t iov_count, bool vma_avail,
 		     bool ipc_valid, uint32_t op, uint64_t total_len,
-		     uint64_t op_flags)
+=======
+static bool smr_use_ipc(void **desc, size_t count, uint64_t op_flags)
 {
 	struct ofi_mr *smr_desc;
-	enum fi_hmem_iface iface = FI_HMEM_SYSTEM;
+
+	if (count != 1 || !desc || !desc[0])
+		return false;
+
+	smr_desc = (struct ofi_mr *) desc[0];
+	if (!ofi_hmem_is_ipc_enabled(smr_desc->iface) ||
+		!(smr_desc->flags & FI_HMEM_DEVICE_ONLY) ||
+		op_flags & FI_INJECT)
+		return false;
+
+	return true;
+}
+
+static bool smr_use_fastcopy(void **desc, size_t count, uint64_t total_len)
+{
+	struct ofi_mr *smr_desc;
+
+	if (count != 1 || !desc || !desc[0])
+		return false;
+
+	smr_desc = (struct ofi_mr *) desc[0];
+	if (!(smr_desc->flags & OFI_HMEM_DATA_DEV_REG_HANDLE) ||
+		!(smr_desc->hmem_data == NULL))
+		return false;
+
+	return true;
+}
+
+int smr_select_proto(void **desc, size_t iov_count,
+                     bool vma_avail, uint32_t op, uint64_t total_len,
+>>>>>>> patched
+		     uint64_t op_flags)
+{
 	bool fastcopy_avail = false, use_ipc = false;
 
 	/* Do not inline/inject if IPC is available so device to device
 	 * transfer may occur if possible. */
+<<<<<<< current
 	if (iov_count == 1 && desc && desc[0] && ipc_valid) {
 		smr_desc = (struct ofi_mr *) *desc;
 		iface = smr_desc->iface;
@@ -562,11 +656,16 @@ int smr_select_proto(void **desc, size_t iov_count, bool vma_avail,
 			fastcopy_avail = true;
 		}
 	}
+=======
+	use_ipc = smr_use_ipc(desc, iov_count, op_flags);
+	fastcopy_avail = smr_use_fastcopy(desc, iov_count, total_len);
+>>>>>>> patched
 
 	if (op == ofi_op_read_req) {
 		if (use_ipc)
 			return smr_src_ipc;
-		if (vma_avail && FI_HMEM_SYSTEM == iface)
+		if (vma_avail && ofi_mr_all_host((struct ofi_mr **) desc,
+						 iov_count))
 			return smr_src_iov;
 		return smr_src_sar;
 	}
@@ -585,7 +684,8 @@ int smr_select_proto(void **desc, size_t iov_count, bool vma_avail,
 	if (use_ipc)
 		return smr_src_ipc;
 
-	if (total_len > SMR_INJECT_SIZE && vma_avail)
+	if (total_len > SMR_INJECT_SIZE && vma_avail &&
+	    ofi_mr_all_host((struct ofi_mr **) desc, iov_count))
 		return smr_src_iov;
 
 	if (op_flags & FI_DELIVERY_COMPLETE)
@@ -706,8 +806,19 @@ static ssize_t smr_do_ipc(struct smr_ep *ep, struct smr_region *peer_smr, int64_
 
 	smr_generic_format(cmd, peer_id, op, tag, data, op_flags);
 	assert(iov_count == 1 && desc && desc[0]);
+<<<<<<< current
 	ret = smr_format_ipc(cmd, iov[0].iov_base, total_len, ep->region,
 			     resp, desc[0]->iface, desc[0]->device);
+=======
+	if (desc[0]->iface == FI_HMEM_ZE) {
+		if (smr_ze_ipc_enabled(ep->region, peer_smr))
+			ret = smr_format_ze_ipc(ep, id, cmd, iov, iov_count,
+					desc[0]->device, total_len, ep->region);
+	} else {
+		ret = smr_format_ipc(cmd, iov, iov_count, total_len, ep->region,
+				     desc[0]->iface, desc[0]->device);
+	}
+>>>>>>> patched
 
 	if (ret) {
 		FI_WARN_ONCE(&smr_prov, FI_LOG_EP_CTRL,
@@ -1152,9 +1263,19 @@ static int smr_ep_ctrl(struct fid *fid, int command, void *arg)
 		if (ret)
 			return ret;
 
-		if (ep->util_ep.caps & FI_HMEM || smr_env.disable_cma) {
+		if (smr_env.disable_cma ||
+		   (ep->util_ep.caps & FI_HMEM &&
+		     ofi_hmem_any_ipc_disabled())) {
 			ep->region->cma_cap_peer = SMR_VMA_CAP_OFF;
 			ep->region->cma_cap_self = SMR_VMA_CAP_OFF;
+<<<<<<< current
+=======
+		}
+
+		if (ep->util_ep.caps & FI_HMEM) {
+			if (ze_hmem_p2p_enabled())
+				smr_init_ipc_socket(ep);
+>>>>>>> patched
 		}
 
 		if (ofi_hmem_any_ipc_enabled())

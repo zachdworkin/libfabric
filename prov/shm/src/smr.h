@@ -119,7 +119,7 @@ struct smr_tx_entry {
 	int64_t		peer_id;
 	void		*context;
 	struct iovec	iov[SMR_IOV_LIMIT];
-	uint32_t	iov_count;
+	size_t		iov_count;
 	uint64_t	op_flags;
 	size_t		bytes_done;
 	void		*map_ptr;
@@ -270,6 +270,7 @@ void smr_format_pend_resp(struct smr_tx_entry *pend, struct smr_cmd *cmd,
 			  const struct iovec *iov, uint32_t iov_count,
 			  uint64_t op_flags, int64_t id, struct smr_resp *resp);
 void smr_generic_format(struct smr_cmd *cmd, int64_t peer_id, uint32_t op,
+<<<<<<< current
 			uint64_t tag, uint64_t data, uint64_t op_flags);
 size_t smr_copy_to_sar(struct smr_freestack *sar_pool, struct smr_resp *resp,
 		       struct smr_cmd *cmd, struct ofi_mr **mr,
@@ -279,6 +280,26 @@ size_t smr_copy_from_sar(struct smr_freestack *sar_pool, struct smr_resp *resp,
 			 struct smr_cmd *cmd, struct ofi_mr **mr,
 			 const struct iovec *iov, size_t count,
 			 size_t *bytes_done);
+=======
+			uint64_t tag, uint64_t data, uint64_t op_flags,
+			uintptr_t rma_cmd);
+void smr_format_iov(struct smr_cmd *cmd, const struct iovec *iov,
+		    size_t count, size_t total_len);
+int smr_format_ze_ipc(struct smr_ep *ep, int64_t id, struct smr_cmd *cmd,
+		const struct iovec *iov, size_t iov_count, uint64_t device,
+		size_t total_len, struct smr_region *smr);
+void smr_format_iov(struct smr_cmd *cmd, const struct iovec *iov,
+		    size_t count, size_t total_len);
+int smr_format_ipc(struct smr_cmd *cmd, const struct iovec *iov,
+		size_t iov_count, size_t len, struct smr_region *smr,
+		enum fi_hmem_iface iface, uint64_t device);
+size_t smr_copy_to_sar(struct smr_region *smr, struct smr_cmd *cmd,
+		         struct ofi_mr **mr, const struct iovec *iov,
+		         size_t count, size_t *bytes_done);
+size_t smr_copy_from_sar(struct smr_region *smr, struct smr_cmd *cmd,
+		         struct ofi_mr **mr, const struct iovec *iov,
+		         size_t count, size_t *bytes_done);
+>>>>>>> patched
 int smr_select_proto(void **desc, size_t iov_count, bool cma_avail,
 		     bool ipc_valid, uint32_t op, uint64_t total_len,
 		     uint64_t op_flags);
