@@ -464,6 +464,7 @@ int smr_map_to_region(const struct fi_provider *prov, struct smr_map *map,
 		}
 	}
 
+	peer_buf->peer.id = id;
 out:
 	close(fd);
 unlock:
@@ -554,8 +555,7 @@ int smr_map_add(const struct fi_provider *prov, struct smr_map *map,
 	if (ret) {
 		assert(ret == -FI_EALREADY);
 		*id = (intptr_t) node->data;
-		ofi_spin_unlock(&map->lock);
-		return 0;
+		goto out;
 	}
 
 	while (map->peers[map->cur_id].peer.id != -1 &&
@@ -572,11 +572,10 @@ int smr_map_add(const struct fi_provider *prov, struct smr_map *map,
 	map->peers[*id].peer.name[SMR_NAME_MAX - 1] = '\0';
 	map->peers[*id].region = NULL;
 	map->num_peers++;
-	ofi_spin_unlock(&map->lock);
 
+out:
+	ofi_spin_unlock(&map->lock);
 	ret = smr_map_to_region(prov, map, *id);
-	if (!ret)
-		map->peers[*id].peer.id = *id;
 	return ret == -ENOENT ? 0 : ret;
 }
 
