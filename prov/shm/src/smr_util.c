@@ -536,6 +536,30 @@ void smr_unmap_from_endpoint(struct smr_region *region, int64_t id)
 	ofi_xpmem_release(&local_peers[peer_id].xpmem);
 }
 
+void smr_unmap_peer(struct smr_peer *peer)
+{
+	struct dlist_entry *entry;
+
+	if (peer->pid_fd != -1) {
+		close(peer->pid_fd);
+		peer->pid_fd = -1;
+	}
+
+	pthread_mutex_lock(&ep_list_lock);
+	entry = dlist_remove_first_match(&ep_name_list, smr_match_name,
+		smr_no_prefix(peer->peer.name));
+	if (entry)
+		free(entry);
+
+	pthread_mutex_unlock(&ep_list_lock);
+
+	peer->peer.id = -1;
+	peer->fiaddr = FI_ADDR_NOTAVAIL;
+
+	munmap(peer->region, peer->region->total_size);
+	peer->region = NULL;
+}
+
 void smr_exchange_all_peers(struct smr_region *region)
 {
 	int64_t i;

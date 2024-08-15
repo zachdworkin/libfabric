@@ -354,6 +354,7 @@ int	smr_map_create(const struct fi_provider *prov, int peer_count,
 		       uint16_t caps, struct smr_map **map);
 int	smr_map_to_region(const struct fi_provider *prov, struct smr_map *map,
 			  int64_t id);
+void	smr_unmap_peer(struct smr_peer *peer);
 void	smr_map_to_endpoint(struct smr_region *region, int64_t id);
 void	smr_unmap_from_endpoint(struct smr_region *region, int64_t id);
 void	smr_exchange_all_peers(struct smr_region *region);
