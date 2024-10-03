@@ -1,6 +1,5 @@
 import groovy.transform.Field
 
-properties([disableConcurrentBuilds(abortPrevious: true)])
 @Field def DO_RUN=true
 @Field def TARGET="main"
 @Field def RELEASE=false
@@ -19,7 +18,7 @@ def slurm_batch(partition, node_num, output, command) {
   
   try {
     sh """sbatch --partition=${partition} -N ${node_num} \
-          --wait -o ${output} --open-mode=append \
+          --wait -o ${output} --exclusive --open-mode=append \
           --wrap=\'env; timeout $TIMEOUT ${command}\'
        """
   } catch (Exception e) {
@@ -446,16 +445,16 @@ pipeline {
           steps {
             script {
               slurm_build(BUILD_MODES, "totodile", "water", "water", "water")
-              slurm_batch("totodile", "1",
-                            "${env.LOG_DIR}/build_mpich_water_log",
-                            """python$PYTHON_VERSION ${RUN_LOCATION}/build.py \
-                              --build_item=mpich --build_hw=water"""
-                          )
-              slurm_batch("totodile", "1",
-                          "${env.LOG_DIR}/build_shmem_water_log",
-                          """python$PYTHON_VERSION ${RUN_LOCATION}/build.py \
-                              --build_item=shmem --build_hw=water"""
-                         )
+              // slurm_batch("totodile", "1",
+              //               "${env.LOG_DIR}/build_mpich_water_log",
+              //               """python$PYTHON_VERSION ${RUN_LOCATION}/build.py \
+              //                 --build_item=mpich --build_hw=water"""
+              //             )
+              // slurm_batch("totodile", "1",
+              //             "${env.LOG_DIR}/build_shmem_water_log",
+              //             """python$PYTHON_VERSION ${RUN_LOCATION}/build.py \
+              //                 --build_item=shmem --build_hw=water"""
+              //            )
             }
           }
         }
@@ -463,16 +462,16 @@ pipeline {
           steps {
             script {
               slurm_build(BUILD_MODES, "grass", "grass", "grass", "grass")
-              slurm_batch("grass", "1",
-                            "${env.LOG_DIR}/build_mpich_grass_log",
-                            """python$PYTHON_VERSION ${RUN_LOCATION}/build.py \
-                              --build_item=mpich --build_hw=grass"""
-                          )
-              slurm_batch("grass", "1",
-                          "${env.LOG_DIR}/build_shmem_grass_log",
-                          """python$PYTHON_VERSION ${RUN_LOCATION}/build.py \
-                              --build_item=shmem --build_hw=grass"""
-                         )
+              // slurm_batch("grass", "1",
+              //               "${env.LOG_DIR}/build_mpich_grass_log",
+              //               """python$PYTHON_VERSION ${RUN_LOCATION}/build.py \
+              //                 --build_item=mpich --build_hw=grass"""
+              //             )
+              // slurm_batch("grass", "1",
+              //             "${env.LOG_DIR}/build_shmem_grass_log",
+              //             """python$PYTHON_VERSION ${RUN_LOCATION}/build.py \
+              //                 --build_item=shmem --build_hw=grass"""
+              //            )
             }
           }
         }
@@ -509,26 +508,26 @@ pipeline {
             }
           }
         }
-        stage ('build-daos') {
-          agent {
-            node {
-              label 'daos_head'
-              customWorkspace CUSTOM_WORKSPACE
-            }
-          }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              dir ("${CUSTOM_WORKSPACE}/source/libfabric") { checkout scm }
-              checkout_external_resources()
-              dir (CUSTOM_WORKSPACE) {
-                build("logdir")
-                build("libfabric", "reg", "daos")
-                build("fabtests", "reg", "daos")
-              }
-            }
-          }
-        }
+        // stage ('build-daos') {
+        //   agent {
+        //     node {
+        //       label 'daos_head'
+        //       customWorkspace CUSTOM_WORKSPACE
+        //     }
+        //   }
+        //   options { skipDefaultCheckout() }
+        //   steps {
+        //     script {
+        //       dir ("${CUSTOM_WORKSPACE}/source/libfabric") { checkout scm }
+        //       checkout_external_resources()
+        //       dir (CUSTOM_WORKSPACE) {
+        //         build("logdir")
+        //         build("libfabric", "reg", "daos")
+        //         build("fabtests", "reg", "daos")
+        //       }
+        //     }
+        //   }
+        // }
         stage ('build-gpu') {
           agent {
             node {
@@ -556,42 +555,42 @@ pipeline {
     stage('parallel-tests') {
       when { equals expected: true, actual: DO_RUN }
       parallel {
-        stage ('CI_mpi_verbs-rxm_imb') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                run_ci("CI_mpi_verbs-rxm_imb", "pr_imb_water.json")
-              }
-            }
-          }
-        }
-        stage ('CI_mpi_verbs-rxm_osu') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                run_ci("CI_mpi_verbs-rxm_osu", "pr_osu_water.json")
-              }
-            }
-          }
-        }
-        stage ('CI_mpi_tcp_imb') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                run_ci("CI_mpi_tcp_imb", "pr_imb_grass.json")
-              }
-            }
-          }
-        }
-        stage ('CI_mpi_tcp_osu') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                run_ci("CI_mpi_tcp_osu", "pr_osu_grass.json")
-              }
-            }
-          }
-        }
+        // stage ('CI_mpi_verbs-rxm_imb') {
+        //   steps {
+        //     script {
+        //       dir (CI_LOCATION) {
+        //         run_ci("CI_mpi_verbs-rxm_imb", "pr_imb_water.json")
+        //       }
+        //     }
+        //   }
+        // }
+        // stage ('CI_mpi_verbs-rxm_osu') {
+        //   steps {
+        //     script {
+        //       dir (CI_LOCATION) {
+        //         run_ci("CI_mpi_verbs-rxm_osu", "pr_osu_water.json")
+        //       }
+        //     }
+        //   }
+        // }
+        // stage ('CI_mpi_tcp_imb') {
+        //   steps {
+        //     script {
+        //       dir (CI_LOCATION) {
+        //         run_ci("CI_mpi_tcp_imb", "pr_imb_grass.json")
+        //       }
+        //     }
+        //   }
+        // }
+        // stage ('CI_mpi_tcp_osu') {
+        //   steps {
+        //     script {
+        //       dir (CI_LOCATION) {
+        //         run_ci("CI_mpi_tcp_osu", "pr_osu_grass.json")
+        //       }
+        //     }
+        //   }
+        // }
         stage('CI_fabtests_tcp') {
            steps {
             script {
@@ -691,158 +690,158 @@ pipeline {
             }
           }
         }
-        stage('mpichtestsuite-tcp') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                def providers = [['tcp', null]]
-                def MPIS = ["mpich"]
-                if (env.WEEKLY.toBoolean()) {
-                  MPIS = ["impi", "mpich"]
-                }
-                for (def mpi in MPIS) {
-                  run_middleware(providers, "mpichtestsuite", "mpichtestsuite",
-                                 "grass", "bulbasaur", "2", "${mpi}")
-                }
-              }
-            }
-          }
-        }
-        stage('mpichtestsuite-verbs') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                def providers = [["verbs","rxm"]]
-                def MPIS = ["mpich"]
-                if (env.WEEKLY.toBoolean()) {
-                  MPIS = ["impi", "mpich"]
-                }
-                for (def mpi in MPIS) {
-                  run_middleware(providers, "mpichtestsuite", "mpichtestsuite",
-                                 "water", "totodile", "2", "${mpi}")
-                }
-              }
-            }
-          }
-        }
-        stage('SHMEM_grass') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_middleware([["tcp", null]], "SHMEM", "shmem",
-                                "grass", "bulbasaur,chikorita", "2")
-              }
-            }
-          }
-        }
-        stage('SHMEM_water') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_middleware([["verbs", "rxm"], ["sockets", null]], "SHMEM",
-                                "shmem", "water", "totodile", "2")
-              }
-            }
-          }
-        }
-        stage ('multinode_performance') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_middleware([["tcp", null],["sockets", null]],
-                               "multinode_performance", "multinode", "grass",
-                               "bulbasaur,chikorita", "2")
-                run_middleware([["verbs", "rxm"]], "multinode_performance",
-                               "multinode", "water", "totodile", "2")
-              }
-            }
-          }
-        }
-	      stage ('oneCCL') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-		            run_middleware([["verbs", null]], "oneCCL",
-                               "oneccl", "water", "totodile", "2")
-		            run_middleware([["shm", null]], "oneCCL",
-			                         "oneccl", "grass", "bulbasaur,chikorita", "1")
-		            run_middleware([["psm3", null]], "oneCCL",
-			                         "oneccl", "water", "totodile", "2")
-		            run_middleware([["tcp", null]], "oneCCL",
-			                         "oneccl", "grass", "bulbasaur,chikorita", "2")
-                run_middleware([["shm", null]], "oneCCL_DSA",
-                               "oneccl", "electric", "pikachu", "1", null, null,
-                               """CCL_ATL_SHM=1 FI_SHM_DISABLE_CMA=1 \
-                               FI_SHM_USE_DSA_SAR=1 FI_LOG_LEVEL=warn""")
-              }
-            }
-          }
-        }
-        stage ('oneCCL-GPU-v3') {
-          agent { node { label 'ze' } }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_middleware([["psm3", null]], "oneCCL-GPU-v3", "onecclgpu",
-                               "gpu", "torchic", "1", null, null,
-                               "FI_HMEM_DISABLE_P2P=1")
-                run_middleware([["verbs", null]], "oneCCL-GPU-v3", "onecclgpu",
-                                "gpu", "torchic", "1", null, null,
-                                "FI_HMEM_DISABLE_P2P=1")
-                run_middleware([["tcp", null]], "oneCCL-GPU-v3", "onecclgpu",
-                               "gpu", "torchic", "1", null, null,
-                               "FI_HMEM_DISABLE_P2P=1")
-                run_middleware([["shm", null]], "oneCCL-GPU-v3", "onecclgpu",
-                               "gpu", "torchic", "1", null, null,
-                               "FI_HMEM_DISABLE_P2P=1")
-              }
-            }
-          }
-        }
-        stage('daos_tcp') {
-          agent { node { label 'daos_tcp' } }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_python(PYTHON_VERSION,
-                           """runtests.py --prov='tcp' --util='rxm' \
-                           --test=daos --build_hw=daos \
-                           --log_file=${env.LOG_DIR}/daos_tcp-rxm_reg""")
-              }
-            }
-          }
-        }
-         stage('daos_verbs') {
-          agent { node { label 'daos_verbs' } }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_python(PYTHON_VERSION,
-                           """runtests.py --prov='verbs' --util='rxm' \
-                           --test=daos --build_hw=daos \
-                           --log_file=${env.LOG_DIR}/daos_verbs-rxm_reg""")
-              }
-            }
-          }
-        }
-        stage ('DMABUF-Tests') {
-          agent { node { label 'ze' } }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                dmabuf_output = "${LOG_DIR}/DMABUF-Tests_verbs-rxm_dmabuf"
-                cmd = """ python3.9 runtests.py --test=dmabuf \
-                           --prov=verbs --util=rxm --build_hw=gpu"""
-                slurm_batch("torchic", "1", "${dmabuf_output}_reg",
-                            "${cmd}")
-              }
-            }
-          }
-        }
+        // stage('mpichtestsuite-tcp') {
+        //   steps {
+        //     script {
+        //       dir (RUN_LOCATION) {
+        //         def providers = [['tcp', null]]
+        //         def MPIS = ["mpich"]
+        //         if (env.WEEKLY.toBoolean()) {
+        //           MPIS = ["impi", "mpich"]
+        //         }
+        //         for (def mpi in MPIS) {
+        //           run_middleware(providers, "mpichtestsuite", "mpichtestsuite",
+        //                          "grass", "bulbasaur", "2", "${mpi}")
+        //         }
+        //       }
+        //     }
+        //   }
+        // }
+        // stage('mpichtestsuite-verbs') {
+        //   steps {
+        //     script {
+        //       dir (RUN_LOCATION) {
+        //         def providers = [["verbs","rxm"]]
+        //         def MPIS = ["mpich"]
+        //         if (env.WEEKLY.toBoolean()) {
+        //           MPIS = ["impi", "mpich"]
+        //         }
+        //         for (def mpi in MPIS) {
+        //           run_middleware(providers, "mpichtestsuite", "mpichtestsuite",
+        //                          "water", "totodile", "2", "${mpi}")
+        //         }
+        //       }
+        //     }
+        //   }
+        // }
+        // stage('SHMEM_grass') {
+        //   steps {
+        //     script {
+        //       dir (RUN_LOCATION) {
+        //         run_middleware([["tcp", null]], "SHMEM", "shmem",
+        //                         "grass", "bulbasaur,chikorita", "2")
+        //       }
+        //     }
+        //   }
+        // }
+        // stage('SHMEM_water') {
+        //   steps {
+        //     script {
+        //       dir (RUN_LOCATION) {
+        //         run_middleware([["verbs", "rxm"], ["sockets", null]], "SHMEM",
+        //                         "shmem", "water", "totodile", "2")
+        //       }
+        //     }
+        //   }
+        // }
+        // stage ('multinode_performance') {
+        //   steps {
+        //     script {
+        //       dir (RUN_LOCATION) {
+        //         run_middleware([["tcp", null],["sockets", null]],
+        //                        "multinode_performance", "multinode", "grass",
+        //                        "bulbasaur,chikorita", "2")
+        //         run_middleware([["verbs", "rxm"]], "multinode_performance",
+        //                        "multinode", "water", "totodile", "2")
+        //       }
+        //     }
+        //   }
+        // }
+	      // stage ('oneCCL') {
+        //   steps {
+        //     script {
+        //       dir (RUN_LOCATION) {
+		    //         run_middleware([["verbs", null]], "oneCCL",
+        //                        "oneccl", "water", "totodile", "2")
+		    //         run_middleware([["shm", null]], "oneCCL",
+			  //                        "oneccl", "grass", "bulbasaur,chikorita", "1")
+		    //         run_middleware([["psm3", null]], "oneCCL",
+			  //                        "oneccl", "water", "totodile", "2")
+		    //         run_middleware([["tcp", null]], "oneCCL",
+			  //                        "oneccl", "grass", "bulbasaur,chikorita", "2")
+        //         run_middleware([["shm", null]], "oneCCL_DSA",
+        //                        "oneccl", "electric", "pikachu", "1", null, null,
+        //                        """CCL_ATL_SHM=1 FI_SHM_DISABLE_CMA=1 \
+        //                        FI_SHM_USE_DSA_SAR=1 FI_LOG_LEVEL=warn""")
+        //       }
+        //     }
+        //   }
+        // }
+        // stage ('oneCCL-GPU-v3') {
+        //   agent { node { label 'ze' } }
+        //   options { skipDefaultCheckout() }
+        //   steps {
+        //     script {
+        //       dir (RUN_LOCATION) {
+        //         run_middleware([["psm3", null]], "oneCCL-GPU-v3", "onecclgpu",
+        //                        "gpu", "torchic", "1", null, null,
+        //                        "FI_HMEM_DISABLE_P2P=1")
+        //         run_middleware([["verbs", null]], "oneCCL-GPU-v3", "onecclgpu",
+        //                         "gpu", "torchic", "1", null, null,
+        //                         "FI_HMEM_DISABLE_P2P=1")
+        //         run_middleware([["tcp", null]], "oneCCL-GPU-v3", "onecclgpu",
+        //                        "gpu", "torchic", "1", null, null,
+        //                        "FI_HMEM_DISABLE_P2P=1")
+        //         run_middleware([["shm", null]], "oneCCL-GPU-v3", "onecclgpu",
+        //                        "gpu", "torchic", "1", null, null,
+        //                        "FI_HMEM_DISABLE_P2P=1")
+        //       }
+        //     }
+        //   }
+        // }
+        // stage('daos_tcp') {
+        //   agent { node { label 'daos_tcp' } }
+        //   options { skipDefaultCheckout() }
+        //   steps {
+        //     script {
+        //       dir (RUN_LOCATION) {
+        //         run_python(PYTHON_VERSION,
+        //                    """runtests.py --prov='tcp' --util='rxm' \
+        //                    --test=daos --build_hw=daos \
+        //                    --log_file=${env.LOG_DIR}/daos_tcp-rxm_reg""")
+        //       }
+        //     }
+        //   }
+        // }
+        //  stage('daos_verbs') {
+        //   agent { node { label 'daos_verbs' } }
+        //   options { skipDefaultCheckout() }
+        //   steps {
+        //     script {
+        //       dir (RUN_LOCATION) {
+        //         run_python(PYTHON_VERSION,
+        //                    """runtests.py --prov='verbs' --util='rxm' \
+        //                    --test=daos --build_hw=daos \
+        //                    --log_file=${env.LOG_DIR}/daos_verbs-rxm_reg""")
+        //       }
+        //     }
+        //   }
+        // }
+        // stage ('DMABUF-Tests') {
+        //   agent { node { label 'ze' } }
+        //   options { skipDefaultCheckout() }
+        //   steps {
+        //     script {
+        //       dir (RUN_LOCATION) {
+        //         dmabuf_output = "${LOG_DIR}/DMABUF-Tests_verbs-rxm_dmabuf"
+        //         cmd = """ python3.9 runtests.py --test=dmabuf \
+        //                    --prov=verbs --util=rxm --build_hw=gpu"""
+        //         slurm_batch("torchic", "1", "${dmabuf_output}_reg",
+        //                     "${cmd}")
+        //       }
+        //     }
+        //   }
+        // }
         stage ('CI_fabtests_cyndaquil') {
           steps {
             script {
@@ -900,17 +899,12 @@ pipeline {
       when { equals expected: true, actual: DO_RUN }
       steps {
         script {
-          gather_logs("${env.DAOS_ADDR}", "${env.DAOS_KEY}", "${env.LOG_DIR}",
-                      "${env.LOG_DIR}")
           gather_logs("${env.ZE_ADDR}", "${env.ZE_KEY}", "${env.LOG_DIR}",
                       "${env.LOG_DIR}")
 
           CI_summarize(verbose=false)
           summarize("all", verbose=false, release=RELEASE,
                     send_mail=env.WEEKLY.toBoolean())
-          if (RELEASE) {
-            save_summary()
-          }
         }
       }
     }
@@ -928,9 +922,6 @@ pipeline {
       }
     }
     aborted {
-      node ('daos_head') {
-        dir ("${DELETE_LOCATION}/middlewares") { deleteDir() }
-      }
       node ('ze') {
         dir ("${DELETE_LOCATION}/middlewares") { deleteDir() }
       }
@@ -944,16 +935,10 @@ pipeline {
           send_mail=env.WEEKLY.toBoolean())
         }
       }
-      node ('daos_head') {
-        dir("${env.WORKSPACE}") { deleteDir() }
-        dir("${env.WORKSPACE}@tmp") { deleteDir() }
-      }
       node ('ze') {
         dir("${env.WORKSPACE}") { deleteDir() }
         dir("${env.WORKSPACE}@tmp") { deleteDir() }
       }
-      dir("${env.WORKSPACE}") { deleteDir() }
-      dir("${env.WORKSPACE}@tmp") { deleteDir() }
     }
   }
 }
