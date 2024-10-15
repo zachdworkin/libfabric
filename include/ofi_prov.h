@@ -319,6 +319,17 @@ LPP_INI ;
 #  endif
 #endif
 
+#if (HAVE_XXX) && (HAVE_XXX_DL)
+#  define XXX_INI FI_EXT_INI
+#  define XXX_INIT NULL
+#elif (HAVE_XXX)
+#  define XXX_INI INI_SIG(fi_xxx_ini)
+#  define XXX_INIT fi_xxx_ini()
+XXX_INI ;
+#else
+#  define XXX_INIT NULL
+#endif
+
 /* the utility collective provider is always enabled and built-in */
 #define COLL_INI INI_SIG(fi_coll_ini)
 #define COLL_INIT fi_coll_ini()

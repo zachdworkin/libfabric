@@ -1,0 +1,20 @@
+if HAVE_XXX
+_xxx_files = \
+	prov/xxx/src/xxx_attr.c		\
+        prov/xxx/src/xxx_cq.c		\
+	prov/xxx/src/xxx_domain.c	\
+	prov/xxx/src/xxx_ep.c		\
+	prov/xxx/src/xxx_fabric.c	\
+	prov/xxx/src/xxx_init.c		\
+	prov/xxx/src/xxx_msg.c		\
+	prov/xxx/src/xxx_rma.c		\
+	prov/xxx/src/xxx_atomic.c	\
+        prov/xxx/src/xxx_tagged.c	\
+	prov/xxx/src/xxx.h		\
+
+
+prov_install_man_pages += man/man7/fi_xxx.7
+
+endif HAVE_XXX
+
+prov_dist_man_pages += man/man7/fi_xxx.7
