@@ -200,7 +200,7 @@ def checkout_ci() {
       rm -rf ${env.WORKSPACE}/ci && mkdir ${env.WORKSPACE}/ci
     fi
 
-    git clone --recurse-submodules ${env.CI} ${env.WORKSPACE}/ci
+    git clone --branch cbj --recurse-submodules ${env.ZDWORKIN_CI} ${env.WORKSPACE}/ci
   """
 }
 
@@ -369,7 +369,7 @@ def skip() {
 pipeline {
   agent {
     node {
-      label 'cbj-main'
+      label 'cbj-dev'
       customWorkspace "workspace/${JOB_NAME}/${env.BUILD_NUMBER}"
     }
   }
@@ -473,78 +473,6 @@ pipeline {
             }
           }
         }
-        stage ('electric') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                build_ci("pr_build_electric.json")
-              }
-            }
-          }
-        }
-        stage ('cyndaquil') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                build_ci("pr_build_cyndaquil.json")
-              }
-            }
-          }
-        }
-        stage ('quilava') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                build_ci("pr_build_quilava.json")
-              }
-            }
-          }
-        }
-        stage ('daos') {
-          agent {
-            node {
-              label 'daos_head'
-              customWorkspace CUSTOM_WORKSPACE
-            }
-          }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              checkout_tar("source")
-              checkout_external_resources()
-              dir (CUSTOM_WORKSPACE) {
-                build("logdir")
-              }
-              bootstrap_ci()
-              dir (CI_LOCATION) {
-                build_ci("pr_build_daos.json")
-              }
-            }
-          }
-        }
-        stage ('fire') {
-          agent {
-            node {
-              label 'ze'
-              customWorkspace CUSTOM_WORKSPACE
-            }
-          }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              checkout_tar("source")
-              checkout_external_resources()
-              dir (CUSTOM_WORKSPACE) {
-                build("logdir")
-                build("builddir")
-              }
-              bootstrap_ci()
-              dir (CI_LOCATION) {
-                build_ci("pr_build_fire.json")
-              }
-            }
-          }
-        }
       }
     }
     stage('build-middlewares') {
@@ -604,31 +532,6 @@ pipeline {
             }
           }
         }
-        stage ('oneccl-electric') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                build_ci("pr_build_oneccl_electric.json")
-              }
-            }
-          }
-        }
-        stage ('oneccl-fire') {
-          agent {
-            node {
-              label 'ze'
-              customWorkspace CUSTOM_WORKSPACE
-            }
-          }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                build_ci("pr_build_oneccl_fire.json")
-              }
-            }
-          }
-        }
         stage ('mpich-water') {
           steps {
             script {
@@ -671,7 +574,7 @@ pipeline {
                 }
                 for (def mpi in MPIS) {
                   run_middleware(providers, "mpichtestsuite", "mpichtestsuite",
-                                 "grass", "bulbasaur,ivysaur", "2", "${mpi}")
+                                 "grass", "celebi", "2", "${mpi}")
                 }
               }
             }
@@ -688,7 +591,7 @@ pipeline {
                 }
                 for (def mpi in MPIS) {
                   run_middleware(providers, "mpichtestsuite", "mpichtestsuite",
-                                 "water", "squirtle,wartortle,articuno", "2",
+                                 "water", "gyarados", "2",
                                  "${mpi}")
                 }
               }
@@ -897,137 +800,13 @@ pipeline {
             }
           }
         }
-        stage ('oneccl_electric') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                run_ci("CI_oneccl_electric", "pr_oneccl_electric.json")
-              }
-            }
-          }
-        }
-        stage ('oneCCL-fire') {
-          agent { node { label 'ze' } }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                run_ci("CI_oneccl_fire", "pr_oneccl_fire.json")
-              }
-            }
-          }
-        }
-        stage('daos_tcp') {
-          agent { node { label 'daos_tcp' } }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_python(PYTHON_VERSION,
-                           """runtests.py --prov='tcp' --util='rxm' \
-                           --test=daos --build_hw=daos \
-                           --log_file=${env.LOG_DIR}/daos_tcp-rxm_reg""")
-              }
-            }
-          }
-        }
-         stage('daos_verbs') {
-          agent { node { label 'daos_verbs' } }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_python(PYTHON_VERSION,
-                           """runtests.py --prov='verbs' --util='rxm' \
-                           --test=daos --build_hw=daos \
-                           --log_file=${env.LOG_DIR}/daos_verbs-rxm_reg""")
-              }
-            }
-          }
-        }
-        stage ('DMABUF-Tests') {
-          agent { node { label 'ze' } }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                dmabuf_output = "${LOG_DIR}/DMABUF-Tests_verbs-rxm_dmabuf"
-                cmd = """ python3.9 runtests.py --test=dmabuf \
-                           --prov=verbs --util=rxm --build_hw=fire"""
-                slurm_batch("torchic", "1", "${dmabuf_output}_reg",
-                            "${cmd}")
-              }
-            }
-          }
-        }
-        stage ('CI_fabtests_cyndaquil') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                run_ci("CI_fabtests_cyndaquil_h2d_reg",
-                       "pr_fabtests_cyndaquil_h2d_reg.json")
-                run_ci("CI_fabtests_cyndaquil_d2d_reg",
-                       "pr_fabtests_cyndaquil_d2d_reg.json")
-              }
-            }
-          }
-        }
-        stage ('CI_fabtests_quilava') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                run_ci("CI_fabtests_quilava_h2d_reg",
-                       "pr_fabtests_quilava_h2d_reg.json")
-                run_ci("CI_fabtests_quilava_d2d_reg",
-                       "pr_fabtests_quilava_d2d_reg.json")
-              }
-            }
-          }
-        }
-        stage ('CI_fabtests_charizard') {
-          agent { node { label 'ze' } }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                run_ci("CI_fabtests_charizard_h2d_reg",
-                       "pr_fabtests_charizard_h2d_reg.json")
-                run_ci("CI_fabtests_charizard_d2d_reg",
-                       "pr_fabtests_charizard_d2d_reg.json")
-                run_ci("CI_fabtests_charizard_xd2d_reg",
-                       "pr_fabtests_charizard_xd2d_reg.json")
-              }
-            }
-          }
-        }
-        stage('CI_fabtests_electric') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                run_ci("CI_fabtests_electric_reg", "pr_fabtests_electric_reg.json")
-                run_ci("CI_fabtests_electric_dbg", "pr_fabtests_electric_dbg.json")
-                run_ci("CI_fabtests_electric_dl", "pr_fabtests_electric_dl.json")
-              }
-            }
-          }
-        }
       }
     }
     stage ('Summary') {
       when { equals expected: true, actual: DO_RUN }
       steps {
         script {
-          gather_logs("${env.DAOS_ADDR}", "${env.DAOS_KEY}", "${env.LOG_DIR}",
-                      "${env.LOG_DIR}")
-          gather_logs("${env.ZE_ADDR}", "${env.ZE_KEY}", "${env.LOG_DIR}",
-                      "${env.LOG_DIR}")
-
           CI_summarize(verbose=false)
-          summarize("all", verbose=false, release=RELEASE,
-                    send_mail=env.WEEKLY.toBoolean())
-          if (RELEASE) {
-            save_summary()
-          }
         }
       }
     }
@@ -1039,17 +818,7 @@ pipeline {
         if (DO_RUN) {
           CI_summarize(verbose=true)
           CI_summarize()
-          summarize("all", verbose=true)
-          summarize("all")
         }
-      }
-      node ('daos_head') {
-        dir("${env.WORKSPACE}") { deleteDir() }
-        dir("${env.WORKSPACE}@tmp") { deleteDir() }
-      }
-      node ('ze') {
-        dir("${env.WORKSPACE}") { deleteDir() }
-        dir("${env.WORKSPACE}@tmp") { deleteDir() }
       }
       dir("${env.WORKSPACE}") { deleteDir() }
       dir("${env.WORKSPACE}@tmp") { deleteDir() }
