@@ -112,13 +112,11 @@ struct name {							\
 	ofi_atomic64_t	read_pos;				\
 	uint8_t		pad1[OFI_CACHE_LINE_SIZE -		\
 			     sizeof(ofi_atomic64_t)];		\
-	ofi_atomic64_t	avail;					\
-	uint8_t		pad2[OFI_CACHE_LINE_SIZE -		\
-			     sizeof(ofi_atomic64_t)];		\
 	int		size;					\
 	int		size_mask;				\
-	uint8_t		pad3[OFI_CACHE_LINE_SIZE -		\
+	uint8_t		pad2[OFI_CACHE_LINE_SIZE -		\
 			     (sizeof(int) * 2)];		\
+	int64_t		avail_mask;				\
 	struct name ## _entry entry[];				\
 } __attribute__((__aligned__(64)));				\
 								\
@@ -129,9 +127,9 @@ static inline void name ## _init(struct name *aq, size_t size)	\
 	assert(!((uintptr_t) aq % OFI_CACHE_LINE_SIZE));	\
 	aq->size = size;					\
 	aq->size_mask = aq->size - 1;				\
+	aq->avail_mask = 0xFFFFFFFF00000000;			\
 	ofi_atomic_initialize64(&aq->write_pos, 0);		\
 	ofi_atomic_initialize64(&aq->read_pos, 0);		\
-	ofi_atomic_initialize64(&aq->avail, size);		\
 	for (i = 0; i < size; i++)				\
 		ofi_atomic_initialize64(&aq->entry[i].seq, i);	\
 }								\
@@ -152,16 +150,18 @@ static inline void name ## _free(struct name *aq)		\
 {								\
 	free(aq);						\
 }								\
-static inline bool name ## _claim(struct name *aq)		\
+static inline bool name ## _claim(struct name *aq, int64_t *pos)\
 {								\
-	int64_t avail;						\
-	avail = ofi_atomic_load_explicit64(&aq->avail,		\
-			memory_order_relaxed);			\
-	if (avail > 0) {					\
+	int64_t seq = ofi_atomic_load_explicit64(		\
+			&aq->entry[*pos & aq->size_mask]->seq,	\
+			memory_order_acquire);			\
+	int64_t avail = seq & aq->avail_mask;			\
+	if (!avail)						\
 		if (ofi_atomic_compare_exchange_weak64(		\
-		    &aq->avail, &avail, avail - 1))		\
+		    &aq->entry[*pos & aq->size_mask]->seq,	\
+		    &avail,					\
+		    (seq & ~aq->avail_mask)))			\
 			return true;				\
-	}							\
 	return false;						\
 }								\
 static inline int name ## _assign(struct name *aq,		\
@@ -169,21 +169,25 @@ static inline int name ## _assign(struct name *aq,		\
 {								\
 	struct name ## _entry *ce;				\
 	int64_t diff, seq;					\
-	*pos = ofi_atomic_load_explicit64(&aq->write_pos,	\
-				    memory_order_relaxed);	\
+	if (!*pos)						\
+		goto get_pos;					\
 	for (;;) {						\
 		ce = &aq->entry[*pos & aq->size_mask];		\
 		seq = ofi_atomic_load_explicit64(&(ce->seq),	\
 			memory_order_acquire);			\
-		diff = seq - *pos;				\
+		diff = (seq & aq->size_mask) -			\
+		       (*pos & aq->size_mask);			\
 		if (diff == 0) {				\
 			if (ofi_atomic_compare_exchange_weak64(	\
 				&aq->write_pos, pos,		\
-				*pos + 1))			\
+				*pos + 1)) {			\
+				printf("assigned\n");		\
 				break;				\
+			}					\
 		} else if (diff < 0) {				\
 			assert(0);				\
 		} else {					\
+get_pos:							\
 			*pos = ofi_atomic_load_explicit64(	\
 				&aq->write_pos,			\
 				memory_order_relaxed);		\
@@ -195,7 +199,9 @@ static inline int name ## _assign(struct name *aq,		\
 static inline int name ## _claim_assign(struct name *aq,	\
 	entrytype **buf, int64_t *pos)				\
 {								\
-	if (name ## _claim(aq)) {				\
+	*pos = ofi_atomic_load_explicit64(&aq->write_pos,	\
+		memory_order_relaxed);				\
+	if (name ## _claim(aq, pos)) {				\
 		return name ## _assign(aq, buf, pos);		\
 	}							\
 	return -FI_ENOENT;					\
@@ -214,12 +220,13 @@ static inline void name ## _discard(struct name *aq,		\
 			entrytype *buf,				\
 			int64_t pos)				\
 {								\
-	int64_t avail;						\
+	int64_t expected = pos & aq->avail_mask;		\
+	printf("discard expected = %ld\n", expected);		\
 	do {							\
-		avail = ofi_atomic_load_explicit64(&aq->avail,	\
-				memory_order_relaxed);		\
 		if (ofi_atomic_compare_exchange_weak64(		\
-			&aq->avail, &avail, avail + 1))		\
+			&aq->write_pos,				\
+			&expected,				\
+			pos & ~aq->avail_mask))			\
 			return;					\
 	} while (1);						\
 }								\
@@ -241,7 +248,7 @@ again:								\
 	for (;;) {						\
 		ce = &aq->entry[*pos & aq->size_mask];		\
 		seq = ofi_atomic_load_explicit64(&(ce->seq),	\
-			memory_order_acquire);			\
+			memory_order_acquire) & ~aq->avail_mask;\
 		diff = seq - (*pos + 1);			\
 		if (diff == 0) {				\
 			if (ofi_atomic_compare_exchange_weak64(	\
