@@ -848,6 +848,24 @@ pipeline {
             }
           }
         }
+        stage('CI_performance_regression') {
+          steps {
+            script {
+              dir (CI_LOCATION) {
+                def reg_file = "${env.LOG_DIR}/${env.REGRESSION_FILE}"
+                sh "mkdir -p ${env.LOG_DIR}/CI_perf_regression/data/"
+                sh "cp -r ${env.PERF_REGRESSION_BASELINE} ${env.LOG_DIR}/CI_perf_regression/data/"
+                run_ci("CI_perf_regression", "pr_osu_perf_grass.json")
+                sh """if [[ \$(wc -c < ${reg_file}) -gt 1 ]]; then \
+                      cat ${reg_file}
+                      echo \"Performance regression detected\"
+                      exit 1
+                    fi \
+                   """
+              }
+            }
+          }
+        }
       }
     }
     stage ('Summary') {
