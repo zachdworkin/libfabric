@@ -85,10 +85,6 @@ def CI_summarize(verbose=false) {
     options = "${options} -v"
   }
 
-  if (weekly || RELEASE) {
-    options = "${options} --send-mail"
-  }
-
   sh """source ${CI_LOCATION}/${env.CI_MODULE}/venv/bin/activate;\
         python ${CI_LOCATION}/summarize.py \
         --log_directory=${env.LOG_DIR} \
@@ -103,9 +99,6 @@ def summarize(item, verbose=false, release=false, send_mail=false) {
   }
   if (release) {
     cmd = "${cmd} --release "
-  }
-  if (send_mail.toBoolean()) {
-    cmd = "${cmd} --send_mail "
   }
 
   sh "python3.9 ${cmd}"
@@ -198,7 +191,6 @@ pipeline {
       timestamps()
       timeout(activity: true, time: 6, unit: 'HOURS')
       skipDefaultCheckout()
-      parallelsAlwaysFailFast()
   }
   environment {
       JOB_CADENCE = 'PR'
@@ -233,27 +225,6 @@ pipeline {
       steps {
         script {
           bootstrap_ci()
-        }
-      }
-    }
-    stage('check_authorization') {
-      when { equals expected: true, actual: DO_RUN }
-      steps {
-        script {
-          sh """source ${CI_LOCATION}/${env.CI_MODULE}/venv/bin/activate;\
-                python ${CI_LOCATION}/authorize.py \
-                --author=${env.CHANGE_AUTHOR}
-          """
-        }
-      }
-    }
-    stage ('health_check') {
-      when { equals expected: true, actual: DO_RUN }
-      steps {
-        script {
-          dir (CI_LOCATION) {
-            sh "./temperature.sh"
-          }
         }
       }
     }
@@ -316,28 +287,6 @@ pipeline {
             }
           }
         }
-        stage ('daos') {
-          agent {
-            node {
-              label 'daos_head'
-              customWorkspace CUSTOM_WORKSPACE
-            }
-          }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              checkout_tar("source")
-              checkout_external_resources()
-              dir (CUSTOM_WORKSPACE) {
-                sh "python3.9 ${RUN_LOCATION}/build.py --build_item=logdir"
-              }
-              bootstrap_ci()
-              dir (CI_LOCATION) {
-                build_ci("pr_build_daos.json")
-              }
-            }
-          }
-        }
         stage ('fire') {
           agent {
             node {
@@ -365,189 +314,9 @@ pipeline {
         }
       }
     }
-    stage('build_middlewares') {
-      when { equals expected: true, actual: DO_RUN }
-      parallel {
-        stage ('shmem_water') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                build_ci("pr_build_shmem_water.json")
-              }
-            }
-          }
-        }
-        stage ('shmem_grass') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                build_ci("pr_build_shmem_grass.json")
-              }
-            }
-          }
-        }
-        stage ('ompi_water') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                build_ci("pr_build_ompi_water.json")
-              }
-            }
-          }
-        }
-        stage ('ompi_grass') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                build_ci("pr_build_ompi_grass.json")
-              }
-            }
-          }
-        }
-        stage ('oneccl_water') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                build_ci("pr_build_oneccl_water.json")
-              }
-            }
-          }
-        }
-        stage ('oneccl_grass') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                build_ci("pr_build_oneccl_grass.json")
-              }
-            }
-          }
-        }
-        stage ('oneccl_electric') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                build_ci("pr_build_oneccl_electric.json")
-              }
-            }
-          }
-        }
-        stage ('oneccl_fire') {
-          agent {
-            node {
-              label 'ze'
-              customWorkspace CUSTOM_WORKSPACE
-            }
-          }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                build_ci("pr_build_oneccl_fire.json")
-              }
-            }
-          }
-        }
-        stage ('mpich_grass') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                build_ci("pr_build_mpich_grass.json")
-              }
-            }
-          }
-        }
-        stage ('mpich_water') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                build_ci("pr_build_mpich_water.json")
-              }
-            }
-          }
-        }
-        stage ('impi_grass') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                build_ci("pr_build_impi_grass.json")
-              }
-            }
-          }
-        }
-        stage ('impi_water') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                build_ci("pr_build_impi_water.json")
-              }
-            }
-          }
-        }
-      }
-    }
     stage('parallel_tests') {
       when { equals expected: true, actual: DO_RUN }
       parallel {
-        stage('CI_mpichtestsuite_tcp') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                run_ci("CI_mpi_tcp_mpich_mpichtestsuite", "pr_mpich_mpichtestsuite_grass.json")
-                if (env.WEEKLY.toBoolean()) {
-                  run_ci("CI_mpi_tcp_impi_mpichtestsuite", "pr_impi_mpichtestsuite_grass.json")
-                }
-              }
-            }
-          }
-        }
-        stage('CI_mpichtestsuite_verbs-rxm') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                run_ci("CI_mpi_verbs-rxm_mpich_mpichtestsuite", "pr_mpich_mpichtestsuite_water.json")
-                if (env.WEEKLY.toBoolean()) {
-                  run_ci("CI_mpi_verbs-rxm_impi_mpichtestsuite", "pr_impi_mpichtestsuite_water.json")
-                }
-              }
-            }
-          }
-        }
-        stage ('CI_mpi_verbs-rxm_imb') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                run_ci("CI_mpi_verbs-rxm_imb", "pr_imb_water.json")
-              }
-            }
-          }
-        }
-        stage ('CI_mpi_verbs-rxm_osu') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                run_ci("CI_mpi_verbs-rxm_osu", "pr_osu_water.json")
-              }
-            }
-          }
-        }
-        stage ('CI_mpi_tcp_imb') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                run_ci("CI_mpi_tcp_imb", "pr_imb_grass.json")
-              }
-            }
-          }
-        }
-        stage ('CI_mpi_tcp_osu') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                run_ci("CI_mpi_tcp_osu", "pr_osu_grass.json")
-              }
-            }
-          }
-        }
         stage('CI_fabtests_tcp') {
            steps {
             script {
@@ -663,26 +432,6 @@ pipeline {
             }
           }
         }
-        stage('CI_shmem_grass') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                run_ci("CI_shmem_grass", "pr_shmem_1n2ppn_grass.json")
-                run_ci("CI_shmem_grass", "pr_shmem_2n1ppn_grass.json")
-              }
-            }
-          }
-        }
-        stage('CI_shmem_water') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                run_ci("CI_shmem_water", "pr_shmem_1n2ppn_water.json")
-                run_ci("CI_shmem_water", "pr_shmem_2n1ppn_water.json")
-              }
-            }
-          }
-        }
         stage ('CI_multinode_performance') {
           steps {
             script {
@@ -691,108 +440,6 @@ pipeline {
                        "pr_multinode_performance_grass.json")
                 run_ci("CI_multinode_performance_water",
                        "pr_multinode_performance_water.json")
-              }
-            }
-          }
-        }
-        stage ('CI_oneccl_grass') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                run_ci("CI_oneccl_grass", "pr_oneccl_grass_tcp.json")
-                run_ci("CI_oneccl_grass", "pr_oneccl_grass_shm.json")
-              }
-            }
-          }
-        }
-        stage ('CI_oneccl_water') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                run_ci("CI_oneccl_water", "pr_oneccl_water.json")
-              }
-            }
-          }
-        }
-        stage ('CI_oneccl_electric') {
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                run_ci("CI_oneccl_electric", "pr_oneccl_electric.json")
-              }
-            }
-          }
-        }
-        stage ('CI_oneccl_fire') {
-          agent { node { label 'ze' } }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              dir (CI_LOCATION) {
-                run_ci("CI_oneccl_fire", "pr_oneccl_fire.json")
-              }
-            }
-          }
-        }
-        stage('daos_tcp') {
-          agent { node { label 'daos_tcp' } }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                sh """python3.9 runtests.py \
-                  --prov='tcp' \
-                  --util='rxm' \
-                  --test=daos \
-                  --build_hw=daos \
-                  --log_file=${env.LOG_DIR}/daos_tcp-rxm_reg
-                """
-              }
-            }
-          }
-        }
-         stage('daos_verbs') {
-          agent { node { label 'daos_verbs' } }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                sh """python3.9 runtests.py \
-                  --prov='verbs' \
-                  --util='rxm' \
-                  --test=daos \
-                  --build_hw=daos \
-                  --log_file=${env.LOG_DIR}/daos_verbs-rxm_reg
-                """
-              }
-            }
-          }
-        }
-        stage ('DMABUF-Tests') {
-          agent { node { label 'ze' } }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                output = "${LOG_DIR}/DMABUF-Tests_verbs-rxm_dmabuf"
-                cmd = """python3.9 runtests.py --test=dmabuf \
-                         --prov=verbs --util=rxm --build_hw=fire"""
-                try {
-                  sh """sbatch \
-                        --partition=torchic \
-                        -N 1 \
-                        --wait \
-                        -o ${output} \
-                        --open-mode=append \
-                        -J ${env.SLURM_JOB_NAME} \
-                        --wrap=\'env; timeout 7200 ${cmd}\'
-                    """
-                } catch (Exception e) {
-                  sh "scancel \$(cat ${output} | grep SLURM_JOBID | cut -d \"=\" -f 2)"
-                  sh "cat ${output}"
-                  error("Build failed ${e}")
-                }
-                sh "cat ${output}"
               }
             }
           }
@@ -854,8 +501,6 @@ pipeline {
       when { equals expected: true, actual: DO_RUN }
       steps {
         script {
-          gather_logs("${env.DAOS_ADDR}", "${env.DAOS_KEY}", "${env.LOG_DIR}",
-                      "${env.LOG_DIR}")
           gather_logs("${env.ZE_ADDR}", "${env.ZE_KEY}", "${env.LOG_DIR}",
                       "${env.LOG_DIR}")
 
@@ -873,13 +518,7 @@ pipeline {
         if (DO_RUN) {
           CI_summarize(verbose=true)
           CI_summarize()
-          summarize("all", verbose=true)
-          summarize("all")
         }
-      }
-      node ('daos_head') {
-        dir("${env.WORKSPACE}") { deleteDir() }
-        dir("${env.WORKSPACE}@tmp") { deleteDir() }
       }
       node ('ze') {
         dir("${env.WORKSPACE}") { deleteDir() }
