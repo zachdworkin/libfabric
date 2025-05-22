@@ -541,6 +541,7 @@ void xnet_handle_event_list(struct xnet_progress *progress)
 	struct slist_entry *item;
 	struct xnet_rdm_cm *msg;
 	struct xnet_conn *conn;
+	struct fi_eq_err_entry *err_entry = NULL;
 
 	assert(ofi_genlock_held(&progress->rdm_lock));
 	while (!slist_empty(&progress->event_list)) {
@@ -564,6 +565,9 @@ void xnet_handle_event_list(struct xnet_progress *progress)
 			conn = event->cm_entry.fid->context;
 			xnet_close_conn(conn);
 			xnet_free_conn(conn);
+			if (event->flags & UTIL_FLAG_ERROR)
+				free(((struct fi_eq_err_entry *)
+				     &event->cm_entry)->err_data);
 			break;
 		default:
 			assert(0);

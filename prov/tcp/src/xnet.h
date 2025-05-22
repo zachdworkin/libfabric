@@ -272,6 +272,7 @@ struct xnet_event {
 	struct slist_entry list_entry;
 	struct xnet_rdm *rdm;
 	uint32_t event;
+	uint64_t flags;
 	struct fi_eq_cm_entry cm_entry;
 };
 
