@@ -82,6 +82,11 @@ bin_PROGRAMS += \
 	component/dmabuf-rdma/xe_memcopy
 endif HAVE_ZE_DEVEL
 
+if HAVE_CUDA
+bin_PROGRAMS += \
+	component/dmabuf-rdma/cu_memcopy
+endif HAVE_CUDA
+
 dist_bin_SCRIPTS = \
 	scripts/runfabtests.sh \
 	scripts/runfabtests.py \
@@ -595,6 +600,18 @@ component_dmabuf_rdma_xe_memcopy_LDADD = libfabtests.la
 component_dmabuf_rdma_xe_memcopy_CFLAGS = \
 	$(AM_CFLAGS)
 endif HAVE_ZE_DEVEL
+
+if HAVE_CUDA
+component_dmabuf_rdma_cu_memcopy_SOURCES = \
+	component/dmabuf-rdma/memcopy-cu.c \
+	component/dmabuf-rdma/util.c \
+	component/dmabuf-rdma/util.h
+
+component_dmabuf_rdma_cu_memcopy_LDADD = libfabtests.la
+
+component_dmabuf_rdma_cu_memcopy_CFLAGS = \
+	$(AM_CFLAGS)
+endif HAVE_CUDA
 
 regression_sighandler_test_SOURCES = \
 	regression/sighandler_test.c

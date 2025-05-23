@@ -47,8 +47,8 @@
 
 static ze_context_handle_t context;
 static ze_device_handle_t devices[ZE_MAX_DEVICES];
-static ze_command_queue_handle_t cmd_queue;
-static ze_command_list_handle_t cmd_list;
+static ze_command_queue_handle_t cmd_queue[ZE_MAX_DEVICES];
+static ze_command_list_handle_t cmd_list[ZE_MAX_DEVICES];
 
 static const ze_command_queue_desc_t cq_desc = {
 	.stype		= ZE_STRUCTURE_TYPE_COMMAND_QUEUE_DESC,
@@ -293,6 +293,7 @@ int ft_ze_init(void)
 	ze_context_desc_t context_desc = {0};
 	ze_result_t ze_ret;
 	uint32_t count;
+	int i;
 
 	if (init_libze_ops())
 		return -FI_EIO;
@@ -319,16 +320,17 @@ int ft_ze_init(void)
 	if (ze_ret)
 		goto err;
 
-	ze_ret = (*libze_ops.zeCommandQueueCreate)( context,
-				devices[opts.device], &cq_desc, &cmd_queue);
-	if (ze_ret)
-		goto err;
+	for (i = 0; i < count; i++) {
+		ze_ret = (*libze_ops.zeCommandQueueCreate)(context,
+					devices[i], &cq_desc, &cmd_queue[i]);
+		if (ze_ret)
+			goto err;
 
-	ze_ret = (*libze_ops.zeCommandListCreate)(context,
-				devices[opts.device], &cl_desc, &cmd_list);
-	if (ze_ret)
-		goto err;
-
+		ze_ret = (*libze_ops.zeCommandListCreate)(context,
+					devices[i], &cl_desc, &cmd_list[i]);
+		if (ze_ret)
+			goto err;
+	}
 	return FI_SUCCESS;
 
 err:
@@ -339,17 +341,22 @@ err:
 int ft_ze_cleanup(void)
 {
 	int ret = FI_SUCCESS;
+	int i;
 
-	if (cmd_list) {
-		ret = (*libze_ops.zeCommandListDestroy)(cmd_list);
-		if (ret)
-			return -FI_EINVAL;
-	}
+	for (i = 0; i < ZE_MAX_DEVICES; i++) {
+		if (cmd_list[i]) {
+			ret = (*libze_ops.zeCommandListDestroy)(cmd_list[i]);
+			if (ret)
+				return -FI_EINVAL;
+			cmd_list[i] = NULL;
+		}
 
-	if (cmd_queue) {
-		ret = (*libze_ops.zeCommandQueueDestroy)(cmd_queue);
-		if (ret)
-			return -FI_EINVAL;
+		if (cmd_queue[i]) {
+			ret = (*libze_ops.zeCommandQueueDestroy)(cmd_queue[i]);
+			if (ret)
+				return -FI_EINVAL;
+			cmd_queue[i] = NULL;
+		}
 	}
 
 	if ((*libze_ops.zeContextDestroy)(context))
@@ -380,28 +387,47 @@ int ft_ze_free(void *buf)
 	return (*libze_ops.zeMemFree)(context, buf) ? -FI_EINVAL : FI_SUCCESS;
 }
 
+int ft_ze_get_address_range(void *dev, void **buf, void **base_addr,
+			    size_t *base_length)
+{
+	return (*libze_ops.zeMemGetAddressRange)(context, *buf, base_addr,
+						base_length) ? -FI_EINVAL : FI_SUCCESS;
+}
+
+int ft_ze_get_ipc_handle(void *buf, void *ipc_handle)
+{
+	ze_result_t ze_ret;
+
+	if (!buf || !ipc_handle)
+		return -FI_EINVAL;
+
+	return (*libze_ops.zeMemGetIpcHandle)(context, buf,
+					(ze_ipc_mem_handle_t *) ipc_handle);
+}
+
 int ft_ze_memset(uint64_t device, void *buf, int value, size_t size)
 {
 	unsigned char set_value = (unsigned char) value;
 	ze_result_t ze_ret;
 
-	ze_ret = (*libze_ops.zeCommandListReset)(cmd_list);
+	ze_ret = (*libze_ops.zeCommandListReset)(cmd_list[device]);
 	if (ze_ret)
 		return -FI_EINVAL;
 
 	ze_ret = (*libze_ops.zeCommandListAppendMemoryFill)(
-					cmd_list, buf, &set_value,
+					cmd_list[device], buf, &set_value,
 					sizeof(set_value),
 					size, NULL, 0, NULL);
 	if (ze_ret)
 		return -FI_EINVAL;
 
-	ze_ret = (*libze_ops.zeCommandListClose)(cmd_list);
+	ze_ret = (*libze_ops.zeCommandListClose)(cmd_list[device]);
 	if (ze_ret)
 		return -FI_EINVAL;
 
 	ze_ret = (*libze_ops.zeCommandQueueExecuteCommandLists)(
-					cmd_queue, 1, &cmd_list, NULL);
+					cmd_queue[device], 1,
+					&cmd_list[device], NULL);
 	if (ze_ret)
 		return -FI_EINVAL;
 
@@ -415,21 +441,22 @@ int ft_ze_copy(uint64_t device, void *dst, const void *src, size_t size)
 	if (!size)
 		return FI_SUCCESS;
 
-	ze_ret = (*libze_ops.zeCommandListReset)(cmd_list);
+	ze_ret = (*libze_ops.zeCommandListReset)(cmd_list[device]);
 	if (ze_ret)
 		return -FI_EINVAL;
 
 	ze_ret = (*libze_ops.zeCommandListAppendMemoryCopy)(
-					cmd_list, dst, src, size, NULL, 0, NULL);
+					cmd_list[device], dst, src, size, NULL, 0, NULL);
 	if (ze_ret)
 		return -FI_EINVAL;
 
-	ze_ret = (*libze_ops.zeCommandListClose)(cmd_list);
+	ze_ret = (*libze_ops.zeCommandListClose)(cmd_list[device]);
 	if (ze_ret)
 		return -FI_EINVAL;
 
 	ze_ret = (*libze_ops.zeCommandQueueExecuteCommandLists)(
-					cmd_queue, 1, &cmd_list, NULL);
+					cmd_queue[device], 1,
+					&cmd_list[device], NULL);
 	if (ze_ret)
 		return -FI_EINVAL;
 
@@ -469,6 +496,17 @@ int ft_ze_memset(uint64_t device, void *buf, int value, size_t size)
 }
 
 int ft_ze_copy(uint64_t device, void *dst, const void *src, size_t size)
+{
+	return -FI_ENOSYS;
+}
+
+int ft_ze_get_address_range(void *dev, void **buf, void **base_addr,
+			    size_t *base_length)
+{
+	return -FI_ENOSYS;
+}
+
+int ft_ze_get_ipc_handle(void *buf, void *ipc_handle)
 {
 	return -FI_ENOSYS;
 }

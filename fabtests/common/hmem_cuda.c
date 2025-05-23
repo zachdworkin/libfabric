@@ -40,39 +40,10 @@
 #include <cuda_runtime.h>
 #include <cuda.h>
 
-struct cuda_ops {
-	cudaError_t (*cudaMemcpy)(void *dst, const void *src, size_t count,
-				  enum cudaMemcpyKind kind);
-	cudaError_t (*cudaMalloc)(void **ptr, size_t size);
-	cudaError_t (*cudaMallocHost)(void **ptr, size_t size);
-	cudaError_t (*cudaFree)(void *ptr);
-	cudaError_t (*cudaFreeHost)(void *ptr);
-	cudaError_t (*cudaMemset)(void *ptr, int value, size_t count);
-	const char *(*cudaGetErrorName)(cudaError_t error);
-	const char *(*cudaGetErrorString)(cudaError_t error);
-	cudaError_t (*cudaSetDevice)(int device);
-	CUresult (*cuPointerSetAttribute)(void *data,
-					  CUpointer_attribute attribute,
-					  CUdeviceptr ptr);
-	CUresult (*cuGetErrorName)(CUresult error, const char** pStr);
-	CUresult (*cuGetErrorString)(CUresult error, const char** pStr);
-#if HAVE_CUDA_DMABUF
-	CUresult (*cuMemGetHandleForAddressRange)(void* handle,
-						  CUdeviceptr dptr, size_t size,
-						  CUmemRangeHandleType handleType,
-						  unsigned long long flags);
-#endif /* HAVE_CUDA_DMABUF */
-	CUresult (*cuDeviceGetAttribute)(int* pi,
-					 CUdevice_attribute attrib, CUdevice dev);
-	CUresult (*cuDeviceGet)(CUdevice* device, int ordinal);
-	CUresult (*cuMemGetAddressRange)( CUdeviceptr* pbase,
-					  size_t* psize, CUdeviceptr dptr);
-};
-
-static struct cuda_ops cuda_ops;
-static void *cudart_handle;
-static void *cuda_handle;
-static bool dmabuf_supported;
+struct cuda_ops cuda_ops;
+void *cudart_handle;
+void *cuda_handle;
+bool dmabuf_supported;
 
 /**
  * Since function names can get redefined in cuda.h/cuda_runtime.h files,
@@ -163,9 +134,22 @@ int ft_cuda_init(void)
 		goto err_dlclose_cudart;
 	}
 
+	cuda_ops.cuInit = dlsym(cuda_handle, STRINGIFY(cuInit));
+	if (!cuda_ops.cuInit) {
+		FT_ERR("Failed to find cuInit");
+		goto err_dlclose_cuda;
+	}
+
 	cuda_ops.cudaMemcpy = dlsym(cudart_handle, STRINGIFY(cudaMemcpy));
 	if (!cuda_ops.cudaMemcpy) {
 		FT_ERR("Failed to find cudaMemcpy");
+		goto err_dlclose_cuda;
+	}
+
+	cuda_ops.cudaMemcpyAsync = dlsym(cudart_handle,
+					    STRINGIFY(cudaMemcpyAsync));
+	if (!cuda_ops.cudaMemcpyAsync) {
+		FT_ERR("Failed to find cudaMemcpyAsync");
 		goto err_dlclose_cuda;
 	}
 
@@ -218,24 +202,71 @@ int ft_cuda_init(void)
 		goto err_dlclose_cuda;
 	}
 
+	cuda_ops.cudaDeviceSynchronize = dlsym(cudart_handle,
+					STRINGIFY(cudaDeviceSynchronize));
+	if (!cuda_ops.cudaDeviceSynchronize) {
+		FT_ERR("Failed to find cudaDeviceSynchronize");
+		goto err_dlclose_cuda;
+	}
+
+	// cuda_ops.cudaGetDeviceProperties = dlsym(cudart_handle,
+	// 				STRINGIFY(cudaGetDeviceProperties));
+	// if (!cuda_ops.cudaGetDeviceProperties) {
+	// 	FT_ERR("Failed to find cudaGetDeviceProperties");
+	// 	goto err_dlclose_cuda;
+	// }
+	cuda_ops.cudaDeviceCanAccessPeer = dlsym(cudart_handle,
+					STRINGIFY(cudaDeviceCanAccessPeer));
+	if (!cuda_ops.cudaDeviceCanAccessPeer) {
+		FT_ERR("Failed to find cudaDeviceCanAccessPeer");
+		goto err_dlclose_cuda;
+	}
+
+	cuda_ops.cudaDeviceEnablePeerAccess = dlsym(cudart_handle,
+					STRINGIFY(cudaDeviceEnablePeerAccess));
+	if (!cuda_ops.cudaDeviceEnablePeerAccess) {
+		FT_ERR("Failed to find cudaDeviceEnablePeerAccess");
+		goto err_dlclose_cuda;
+	}
+
+	cuda_ops.cuDeviceGetCount = dlsym(cuda_handle,
+					 STRINGIFY(cuDeviceGetCount));
+	if (!cuda_ops.cuDeviceGetCount) {
+		FT_ERR("Failed to find cuDeviceGetCount");
+		goto err_dlclose_cuda;
+	}
+
 	cuda_ops.cuPointerSetAttribute = dlsym(cuda_handle,
-					       STRINGIFY(cuPointerSetAttribute));
+					      STRINGIFY(cuPointerSetAttribute));
 	if (!cuda_ops.cuPointerSetAttribute) {
 		FT_ERR("Failed to find cuPointerSetAttribute\n");
 		goto err_dlclose_cuda;
 	}
 
 	cuda_ops.cuGetErrorName = dlsym(cuda_handle,
-					       STRINGIFY(cuGetErrorName));
+					STRINGIFY(cuGetErrorName));
 	if (!cuda_ops.cuGetErrorName) {
 		FT_ERR("Failed to find cuGetErrorName\n");
 		goto err_dlclose_cuda;
 	}
 
 	cuda_ops.cuGetErrorString = dlsym(cuda_handle,
-					       STRINGIFY(cuGetErrorString));
+					  STRINGIFY(cuGetErrorString));
 	if (!cuda_ops.cuGetErrorString) {
 		FT_ERR("Failed to find cuGetErrorString\n");
+		goto err_dlclose_cuda;
+	}
+
+	cuda_ops.cuIpcGetMemHandle = dlsym(cuda_handle,
+					     STRINGIFY(cuIpcGetMemHandle));
+	if (!cuda_ops.cuIpcGetMemHandle) {
+		FT_ERR("Failed to find cuIpcGetMemHandle\n");
+		goto err_dlclose_cuda;
+	}
+	cuda_ops.cudaIpcCloseMemHandle = dlsym(cudart_handle,
+					       STRINGIFY(cudaIpcCloseMemHandle));
+	if (!cuda_ops.cudaIpcCloseMemHandle) {
+		FT_ERR("Failed to find cudaIpcCloseMemHandle\n");
 		goto err_dlclose_cuda;
 	}
 
@@ -413,6 +444,30 @@ int ft_cuda_get_base_addr(const void *ptr, size_t len, void **base, size_t *size
 	return -FI_EIO;
 }
 
+int ft_cuda_get_address_range(void *dev, void **buf, void **alloc_base,
+			      size_t *size)
+{
+	return ft_cuda_get_base_addr(dev, 0, alloc_base, size);
+}
+
+int ft_cuda_get_ipc_handle(void *buf, void *ipc_handle)
+{
+	CUresult cu_result;
+
+	if (!buf || !ipc_handle)
+		return -FI_EINVAL;
+
+	cu_result = cuda_ops.cuIpcGetMemHandle(
+					(CUipcMemHandle *) ipc_handle,
+					*(CUdeviceptr *) buf);
+	if (cu_result != CUDA_SUCCESS) {
+		ft_cuda_driver_api_print_error(cu_result, "cuMemGetIpcHandle");
+		return -FI_EIO;
+	}
+
+	return FI_SUCCESS;
+}
+
 /**
  * @brief Get dmabuf fd and offset for a given cuda memory allocation
  *
@@ -536,6 +591,12 @@ int ft_cuda_copy_from_hmem(uint64_t device, void *dst, const void *src,
 
 int ft_cuda_get_dmabuf_fd(void *buf, size_t len,
 			  int *dmabuf_fd, uint64_t *dmabuf_offset)
+{
+	return -FI_ENOSYS;
+}
+
+int ft_cuda_get_address_range(uint64_t device, void **buf,
+			      void **alloc_base, size_t *size)
 {
 	return -FI_ENOSYS;
 }

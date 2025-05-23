@@ -124,13 +124,67 @@ extern struct libze_ops {
 int init_libze_ops(void);
 # endif /* HAVE_ZE */
 
+#if HAVE_CUDA_RUNTIME_H
+#include <cuda_runtime.h>
+#include <cuda.h>
+extern struct cuda_ops {
+	CUresult (*cuInit)(unsigned int flags);
+	cudaError_t (*cudaMemcpy)(void *dst, const void *src, size_t count,
+				  enum cudaMemcpyKind kind);
+	cudaError_t (*cudaMemcpyAsync)(void *dst, const void *src, size_t count,
+				       enum cudaMemcpyKind kind,
+				       cudaStream_t stream);
+	cudaError_t (*cudaMalloc)(void **ptr, size_t size);
+	cudaError_t (*cudaMallocHost)(void **ptr, size_t size);
+	cudaError_t (*cudaFree)(void *ptr);
+	cudaError_t (*cudaFreeHost)(void *ptr);
+	cudaError_t (*cudaMemset)(void *ptr, int value, size_t count);
+	CUresult (*cuMemGetInfo)(size_t* free, size_t* total);
+	const char *(*cudaGetErrorName)(cudaError_t error);
+	const char *(*cudaGetErrorString)(cudaError_t error);
+	cudaError_t (*cudaSetDevice)(int device);
+	cudaError_t (*cudaDeviceSynchronize)(void);
+	// cudaError_t (*cudaGetDeviceProperties)(cudaDeviceProp* prop,
+	// 				       int device);
+	cudaError_t (*cudaDeviceCanAccessPeer)(int *canAccessPeer,
+					       int deviceId,
+					       int peerDeviceId);
+	cudaError_t (*cudaDeviceEnablePeerAccess)(int peerDeviceId,
+						  unsigned int flags);
+	CUresult (*cuDeviceGetCount)(int *count);
+	CUresult (*cuPointerSetAttribute)(void *data,
+					  CUpointer_attribute attribute,
+					  CUdeviceptr ptr);
+	CUresult (*cuGetErrorName)(CUresult error, const char** pStr);
+	CUresult (*cuGetErrorString)(CUresult error, const char** pStr);
+#if HAVE_CUDA_DMABUF
+	CUresult (*cuMemGetHandleForAddressRange)(void* handle,
+						  CUdeviceptr dptr, size_t size,
+						  CUmemRangeHandleType handleType,
+						  unsigned long long flags);
+#endif /* HAVE_CUDA_DMABUF */
+	CUresult (*cuDeviceGetAttribute)(int* pi,
+					 CUdevice_attribute attrib, CUdevice dev);
+	CUresult (*cuDeviceGet)(CUdevice* device, int ordinal);
+	CUresult (*cuMemGetAddressRange)( CUdeviceptr* pbase,
+					  size_t* psize, CUdeviceptr dptr);
+	CUresult (*cuIpcGetMemHandle)(CUipcMemHandle* pHandle,
+				      CUdeviceptr dptr);
+	cudaError_t (*cudaIpcCloseMemHandle)(void *devPtr);
+} cuda_ops;
+int ft_init_cuda(void);
+# endif /* HAVE_CUDA_RUNTIME_H */
+
 int ft_ze_init(void);
 int ft_ze_cleanup(void);
+int ft_ze_copy(uint64_t device, void *dst, const void *src, size_t size);
 int ft_ze_alloc(uint64_t device, void **buf, size_t size);
 int ft_ze_alloc_host(void **buf, size_t size);
 int ft_ze_free(void *buf);
 int ft_ze_memset(uint64_t device, void *buf, int value, size_t size);
-int ft_ze_copy(uint64_t device, void *dst, const void *src, size_t size);
+int ft_ze_get_address_range(void *dev, void **buf, void **base_addr,
+			    size_t *base_length);
+int ft_ze_get_ipc_handle(void *buf, void *ipc_handle);
 
 static inline int ft_host_init(void)
 {
@@ -184,6 +238,9 @@ int ft_cuda_copy_from_hmem(uint64_t device, void *dst, const void *src,
 			   size_t size);
 int ft_cuda_get_dmabuf_fd(void *buf, size_t len,
 			  int *fd, uint64_t *offset);
+int ft_cuda_get_address_range(void *dev, void **buf, void **alloc_base,
+			      size_t *size);
+int ft_cuda_get_ipc_handle(void *buf, void *ipc_handle);
 int ft_rocr_init(void);
 int ft_rocr_cleanup(void);
 int ft_rocr_alloc(uint64_t device, void **buf, size_t size);
@@ -228,5 +285,7 @@ int ft_hmem_get_dmabuf_fd(enum fi_hmem_iface iface,
 			  int *fd, uint64_t *offset);
 int ft_hmem_no_get_dmabuf_fd(void *buf, size_t len,
 			     int *fd, uint64_t *offset);
-
+int ft_hmem_no_get_address_range(void *dev, void **buf, void **base,
+				 size_t *size);
+int ft_hmem_no_get_ipc_handle(void *buf, void *ipc_handle);
 #endif /* _HMEM_H_ */

@@ -90,6 +90,8 @@
 #include <rdma/fi_atomic.h>
 #include <rdma/fi_errno.h>
 #include <level_zero/ze_api.h>
+#include "shared.h"
+#include "hmem.h"
 #include "util.h"
 #include "xe.h"
 #include "ofi_ctx_pool.h"
@@ -173,7 +175,6 @@ static int			buf_location = MALLOC;
 static int			use_proxy;
 static int			proxy_block = MAX_SIZE;
 static int			use_sync_ofi;
-static int			verify;
 static int			prepost;
 static int			batch = 1;
 static size_t			max_size = MAX_SIZE;
@@ -185,25 +186,25 @@ static void init_buf(size_t buf_size, char c)
 	void *buf;
 
 	for (i = 0; i < num_gpus; i++) {
-		buf = xe_alloc_buf(page_size, buf_size, buf_location, i,
+		buf = alloc_buf(page_size, buf_size, buf_location, i,
 				   &bufs[i].xe_buf);
 		if (!buf) {
 			fprintf(stderr, "Couldn't allocate work buf.\n");
 			exit(-1);
 		}
 
-		xe_set_buf(buf, c, buf_size, buf_location, i);
+		set_buf(buf, c, buf_size, buf_location, i);
 	}
 
 	if (buf_location == DEVICE && use_proxy) {
-		if (!xe_alloc_buf(page_size, buf_size, HOST, 0,
-				  &proxy_buf.xe_buf)) {
+		if (!alloc_buf(page_size, buf_size, HOST, 0,
+			       &proxy_buf.xe_buf)) {
 			fprintf(stderr, "Couldn't allocate proxy buf.\n");
 			exit(-1);
 		}
 	}
 
-	if (!xe_alloc_buf(page_size, page_size, MALLOC, 0, &sync_buf.xe_buf)) {
+	if (!alloc_buf(page_size, page_size, MALLOC, 0, &sync_buf.xe_buf)) {
 		fprintf(stderr, "Couldn't allocate sync buf.\n");
 		exit(-1);
 	}
@@ -426,7 +427,26 @@ static int init_nic(int nic, char *domain_name, char *server_name, int port,
 		mr_attr.requested_key = i + 1;
 		mr_attr.iface = bufs[i].xe_buf.location == MALLOC ?
 					FI_HMEM_SYSTEM : FI_HMEM_ZE;
-		mr_attr.device.ze = xe_get_dev_num(i);
+		mr_attr.iface = opts.iface;
+		switch (opts.iface) {
+		case FI_HMEM_CUDA:
+			mr_attr.device.cuda = i;
+			break;
+		case FI_HMEM_ZE:
+			mr_attr.device.ze = i;
+			break;
+		case FI_HMEM_NEURON:
+			mr_attr.device.neuron = i;
+			break;
+		case FI_HMEM_SYNAPSEAI:
+			mr_attr.device.synapseai = i;
+			break;
+		case FI_HMEM_ROCR:
+			/* FALL THROUGH */
+		default:
+			mr_attr.device.reserved = 0;
+			break;
+		}
 		EXIT_ON_ERROR(fi_mr_regattr(domain, &mr_attr, 0, &mr));
 
 		if (fi->domain_attr->mr_mode & FI_MR_ENDPOINT) {
@@ -1149,14 +1169,13 @@ int main(int argc, char *argv[])
 	size_t size;
 	int c;
 	int initiator;
-	ssize_t msg_size = 0;
 	size_t warm_up_size;
 	int err = 0;
 	int rank;
 	char *s;
 	int loc1 = MALLOC, loc2 = MALLOC;
 
-	while ((c = getopt(argc, argv, "2b:d:D:e:p:m:M:n:t:gPB:rRsS:x:hv")) != -1) {
+	while ((c = getopt(argc, argv, "2b:d:D:e:I:p:m:M:n:t:gPB:rRsS:x:hv")) != -1) {
 		switch (c) {
 		case '2':
 			bidir = 1;
@@ -1185,6 +1204,20 @@ int main(int argc, char *argv[])
 				ep_type = FI_EP_RDM;
 			else if (strcasecmp(optarg, "msg") == 0)
 				ep_type = FI_EP_MSG;
+			break;
+		case 'I':
+			if (!strncasecmp("ze", optarg, 2))
+				opts.iface = FI_HMEM_ZE;
+			else if (!strncasecmp("cuda", optarg, 4))
+				opts.iface = FI_HMEM_CUDA;
+			else if (!strncasecmp("neuron", optarg, 6))
+				opts.iface = FI_HMEM_NEURON;
+			else if (!strncasecmp("synapseai", optarg, 9))
+				opts.iface = FI_HMEM_SYNAPSEAI;
+			else
+				opts.iface = FI_HMEM_SYSTEM;
+
+			opts.options |= FT_OPT_ENABLE_HMEM | FT_OPT_USE_DEVICE;
 			break;
 		case 'p':
 			prov_name = strdup(optarg);
@@ -1219,13 +1252,14 @@ int main(int argc, char *argv[])
 			reverse = 1;
 			break;
 		case 'R':
-			use_dmabuf_reg = 1;
+			opts.options |= FT_OPT_REG_DMABUF_MR;
 			break;
 		case 's':
 			use_sync_ofi = 1;
 			break;
 		case 'S':
-			msg_size = parse_size(optarg);
+			opts.transfer_size = parse_size(optarg);
+			opts.options |= FT_OPT_SIZE;
 			break;
 		case 'M':
 			max_size = parse_size(optarg);
@@ -1235,7 +1269,7 @@ int main(int argc, char *argv[])
 			prepost = atoi(optarg);
 			break;
 		case 'v':
-			verify = 1;
+			opts.options |= FT_OPT_VERIFY_DATA;
 			break;
 		default:
 			usage(argv[0]);
@@ -1244,9 +1278,9 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if (msg_size > 0 && msg_size > max_size) {
-		max_size = msg_size;
-		proxy_block = msg_size;
+	if (opts.transfer_size > 0 && opts.transfer_size > max_size) {
+		max_size = opts.transfer_size;
+		proxy_block = opts.transfer_size;
 		fprintf(stderr,
 			"Max_size smaller than message size, adjusted to %zd\n",
 			max_size);
@@ -1288,19 +1322,19 @@ int main(int argc, char *argv[])
 
 	initiator = (!reverse && server_name) || (reverse && !server_name);
 
-	if (use_dmabuf_reg)
+	if (ft_check_opts(FT_OPT_REG_DMABUF_MR))
 		dmabuf_reg_open();
 
 	/* multi-GPU test doesn't make sense if buffers are on the host */
 	enable_multi_gpu = buf_location != MALLOC && buf_location != HOST;
-	num_gpus = xe_init(gpu_dev_nums, enable_multi_gpu);
+	ft_hmem_init(opts.iface);
 
 	init_buf(max_size * batch, initiator ? 'A' : 'a');
 	init_ofi(sockfd, server_name, port + 1000, test_type);
 
 	sync_tcp(sockfd);
 	printf("Warming up ...\n");
-	warm_up_size = msg_size > 0 ? msg_size : 1;
+	warm_up_size = opts.transfer_size > 0 ? opts.transfer_size : 1;
 	if (initiator) {
 		run_test(test_type, warm_up_size, 16, 1, 0);
 		sync_send(4);
@@ -1315,10 +1349,10 @@ int main(int argc, char *argv[])
 	sync_tcp(sockfd);
 	printf("Start test ...\n");
 	for (size = 1; size <= max_size && !err; size <<= 1) {
-		if (msg_size < 0)
+		if (opts.transfer_size < 0)
 			break;
-		else if (msg_size > 0)
-			size = msg_size;
+		else if (opts.transfer_size > 0)
+			size = opts.transfer_size;
 		if (initiator) {
 			err = run_test(test_type, size, iters, batch, 1);
 			sync_send(4);
@@ -1330,13 +1364,13 @@ int main(int argc, char *argv[])
 			sync_recv(4);
 		}
 		sync_tcp(sockfd);
-		if (verify) {
+		if (ft_check_opts(FT_OPT_VERIFY_DATA)) {
 			if (test_type == READ)
 				check_buf(size, 'a', 0);
 			else
 				check_buf(size, 'A', 0);
 		}
-		if (msg_size)
+		if (opts.transfer_size)
 			break;
 	}
 	sync_tcp(sockfd);
@@ -1347,7 +1381,7 @@ int main(int argc, char *argv[])
 	finalize_ofi();
 	free_buf();
 
-	if (use_dmabuf_reg)
+	if (ft_check_opts(FT_OPT_REG_DMABUF_MR))
 		dmabuf_reg_close();
 
 	close(sockfd);

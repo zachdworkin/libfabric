@@ -79,6 +79,8 @@
 #include <arpa/inet.h>
 #include <infiniband/verbs.h>
 #include <level_zero/ze_api.h>
+#include "shared.h"
+#include "hmem.h"
 #include "util.h"
 #include "xe.h"
 
@@ -147,17 +149,18 @@ static void init_buf(size_t buf_size, char c)
 	void *buf;
 
 	for (i = 0; i < num_gpus; i++) {
-		buf = xe_alloc_buf(page_size, buf_size, buf_location, i,
-				   &bufs[i].xe_buf);
+		buf = alloc_buf(page_size, buf_size, buf_location, i,
+				&bufs[i].xe_buf);
 		if (!buf) {
 			fprintf(stderr, "Couldn't allocate work buf.\n");
 			exit(-1);
 		}
-		xe_set_buf(buf, c, buf_size, buf_location, i);
+		set_buf(buf, c, buf_size, buf_location, i);
 	}
 
 	if (buf_location == DEVICE && use_proxy) {
-		if (!xe_alloc_buf(page_size, buf_size, HOST, 0, &proxy_buf.xe_buf)) {
+		if (!alloc_buf(page_size, buf_size, HOST, 0,
+			       &proxy_buf.xe_buf)) {
 			fprintf(stderr, "Couldn't allocate proxy buf.\n");
 			exit(-1);
 		}
@@ -176,7 +179,7 @@ static void check_buf(size_t size, char c, int gpu)
 		return;
 	}
 
-	xe_copy_buf(bounce_buf, bufs[gpu].xe_buf.buf, size, gpu);
+	copy_buf(bounce_buf, bufs[gpu].xe_buf.buf, size, gpu);
 
 	for (i = 0; i < size; i++)
 		if (bounce_buf[i] != c) {
@@ -194,15 +197,15 @@ static void check_buf(size_t size, char c, int gpu)
 		printf("all %lu bytes are correct.\n", size);
 }
 
-static void free_buf(void)
+static void free_bufs(void)
 {
 	int i;
 
 	for (i = 0; i < num_gpus; i++)
-		xe_free_buf(bufs[i].xe_buf.buf, bufs[i].xe_buf.location);
+		free_buf(bufs[i].xe_buf.buf, bufs[i].xe_buf.location);
 
 	if (use_proxy)
-		xe_free_buf(proxy_buf.xe_buf.buf, proxy_buf.xe_buf.location);
+		free_buf(proxy_buf.xe_buf.buf, proxy_buf.xe_buf.location);
 }
 
 /*
@@ -289,7 +292,7 @@ static struct ibv_mr *reg_mr(struct ibv_pd *pd, void *buf, uint64_t size,
 			      IBV_ACCESS_REMOTE_WRITE;
 	int odp_flag = use_odp ? IBV_ACCESS_ON_DEMAND : 0;
 
-	if (where == MALLOC || use_dmabuf_reg)
+	if (where == MALLOC || ft_check_opts(FT_OPT_REG_DMABUF_MR))
 		return ibv_reg_mr(pd, buf, size, mr_access_flags | odp_flag);
 	else
 		return ibv_reg_dmabuf_mr(pd,
@@ -523,7 +526,7 @@ static int post_proxy_write(int nic, int gpu, int rgpu, size_t size, int idx,
 			wr.send_flags = signaled ? IBV_SEND_SIGNALED : 0;
 		}
 
-		xe_copy_buf((char *)proxy_buf.xe_buf.buf + offset + sent,
+		copy_buf((char *)proxy_buf.xe_buf.buf + offset + sent,
 			    (char *)bufs[gpu].xe_buf.buf + offset + sent,
 			    block_size, gpu);
 
@@ -791,7 +794,7 @@ int main(int argc, char *argv[])
 			reverse = 1;
 			break;
 		case 'R':
-			use_dmabuf_reg = 1;
+			opts.options |= FT_OPT_REG_DMABUF_MR;
 			break;
 		case 's':
 			use_sync_ib = 1;
@@ -826,12 +829,12 @@ int main(int argc, char *argv[])
 
 	initiator = (!reverse && server_name) || (reverse && !server_name);
 
-	if (use_dmabuf_reg && dmabuf_reg_open())
+	if (opts.options & FT_OPT_REG_DMABUF_MR && dmabuf_reg_open())
 		exit(-1);
 
 	/* multi-GPU test doesn't make sense if buffers are on the host */
 	enable_multi_gpu = buf_location != MALLOC && buf_location != HOST;
-	num_gpus = xe_init(gpu_dev_nums, enable_multi_gpu);
+	ofi_hmem_init(opts.iface);
 
 	init_buf(MAX_SIZE * batch, initiator ? 'A' : 'a');
 	init_ib(ibdev_names, sockfd);
@@ -866,9 +869,9 @@ int main(int argc, char *argv[])
 		sync_ib(4);
 
 	free_ib();
-	free_buf();
+	free_bufs();
 
-	if (use_dmabuf_reg)
+	if (ft_check_opts(FT_OPT_REG_DMABUF_MR))
 		dmabuf_reg_close();
 
 	close(sockfd);

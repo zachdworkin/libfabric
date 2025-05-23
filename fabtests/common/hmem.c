@@ -50,6 +50,12 @@ struct ft_hmem_ops {
 			      size_t size);
 	int (*get_dmabuf_fd)(void *buf, size_t len,
 			     int *fd, uint64_t *offset);
+	int (*get_alloc_props)(uint64_t device, void **buf,
+			       void **props, void **alloc_base,
+			       size_t *alloc_size);
+	int (*get_address_range)(void *dev, void **buf, void **base_addr,
+				 size_t *base_length);
+	int (*get_ipc_handle)(void *buf, void *ipc_handle);
 };
 
 static struct ft_hmem_ops hmem_ops[] = {
@@ -64,6 +70,8 @@ static struct ft_hmem_ops hmem_ops[] = {
 		.copy_to_hmem = ft_host_memcpy,
 		.copy_from_hmem = ft_host_memcpy,
 		.get_dmabuf_fd = ft_hmem_no_get_dmabuf_fd,
+		.get_address_range = ft_hmem_no_get_address_range,
+		.get_ipc_handle = ft_hmem_no_get_ipc_handle,
 	},
 	[FI_HMEM_SYNAPSEAI] = {
 		.init = ft_synapseai_init,
@@ -76,6 +84,8 @@ static struct ft_hmem_ops hmem_ops[] = {
 		.copy_to_hmem = ft_synapseai_copy_to_hmem,
 		.copy_from_hmem = ft_synapseai_copy_from_hmem,
 		.get_dmabuf_fd = ft_synapseai_get_dmabuf_fd,
+		.get_address_range = ft_hmem_no_get_address_range,
+		.get_ipc_handle = ft_hmem_no_get_ipc_handle,
 	},
 	[FI_HMEM_CUDA] = {
 		.init = ft_cuda_init,
@@ -88,6 +98,8 @@ static struct ft_hmem_ops hmem_ops[] = {
 		.copy_to_hmem = ft_cuda_copy_to_hmem,
 		.copy_from_hmem = ft_cuda_copy_from_hmem,
 		.get_dmabuf_fd = ft_cuda_get_dmabuf_fd,
+		.get_address_range = ft_cuda_get_address_range,
+		.get_ipc_handle = ft_cuda_get_ipc_handle,
 	},
 	[FI_HMEM_ROCR] = {
 		.init = ft_rocr_init,
@@ -100,6 +112,8 @@ static struct ft_hmem_ops hmem_ops[] = {
 		.copy_to_hmem = ft_rocr_memcpy,
 		.copy_from_hmem = ft_rocr_memcpy,
 		.get_dmabuf_fd = ft_hmem_no_get_dmabuf_fd,
+		.get_address_range = ft_hmem_no_get_address_range,
+		.get_ipc_handle = ft_hmem_no_get_ipc_handle,
 	},
 	[FI_HMEM_ZE] = {
 		.init = ft_ze_init,
@@ -112,6 +126,8 @@ static struct ft_hmem_ops hmem_ops[] = {
 		.copy_to_hmem = ft_ze_copy,
 		.copy_from_hmem = ft_ze_copy,
 		.get_dmabuf_fd = ft_hmem_no_get_dmabuf_fd,
+		.get_address_range = ft_ze_get_address_range,
+		.get_ipc_handle = ft_ze_get_ipc_handle,
 	},
 	[FI_HMEM_NEURON] = {
 		.init = ft_neuron_init,
@@ -124,6 +140,8 @@ static struct ft_hmem_ops hmem_ops[] = {
 		.copy_to_hmem = ft_neuron_memcpy_to_hmem,
 		.copy_from_hmem = ft_neuron_memcpy_from_hmem,
 		.get_dmabuf_fd = ft_hmem_no_get_dmabuf_fd,
+		.get_address_range = ft_hmem_no_get_address_range,
+		.get_ipc_handle = ft_hmem_no_get_ipc_handle,
 	},
 };
 
@@ -185,6 +203,18 @@ int ft_hmem_free_host(enum fi_hmem_iface iface, void *buf)
 	return hmem_ops[iface].free_host(buf);
 }
 
+int ft_hmem_get_address_range(enum fi_hmem_iface iface, void *dev,
+			      void *buf, void **base, size_t *size)
+{
+	return hmem_ops[iface].get_address_range(dev, buf, base, size);
+}
+
+int ft_hmem_get_ipc_handle(enum fi_hmem_iface iface, void *buf,
+			   void *ipc_handle)
+{
+	return hmem_ops[iface].get_ipc_handle(buf, ipc_handle);
+}
+
 /*
  * Matches the behavior of memset where value is an int but
  * used as a unsigned char
@@ -216,6 +246,17 @@ int ft_hmem_get_dmabuf_fd(enum fi_hmem_iface iface,
 
 int ft_hmem_no_get_dmabuf_fd(void *buf, size_t len,
 			      int *fd, uint64_t *offset)
+{
+	return -FI_ENOSYS;
+}
+
+int ft_hmem_no_get_address_range(void *dev, void **buf, void **alloc_base,
+				 size_t *size)
+{
+	return -FI_ENOSYS;
+}
+
+int ft_hmem_no_get_ipc_handle(void *buf, void *ipc_handle)
 {
 	return -FI_ENOSYS;
 }

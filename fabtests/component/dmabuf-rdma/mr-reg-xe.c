@@ -58,6 +58,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <infiniband/verbs.h>
+#include "shared.h"
 #include "util.h"
 #include "xe.h"
 
@@ -76,16 +77,11 @@ static void init_buf(void)
 {
 	int page_size = sysconf(_SC_PAGESIZE);
 
-	buf = xe_alloc_buf(page_size, buf_size, buf_location, 0, NULL);
+	buf = alloc_buf(page_size, buf_size, buf_location, 0, NULL);
 	if (!buf) {
 		fprintf(stderr, "Couldn't allocate work buf.\n");
 		exit(-1);
 	}
-}
-
-static void free_buf(void)
-{
-	xe_free_buf(buf, buf_location);
 }
 
 static void free_ib(void)
@@ -123,11 +119,11 @@ static int reg_mr(void)
 	int mr_access_flags = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ |
 			      IBV_ACCESS_REMOTE_WRITE;
 
-	if (use_dmabuf_reg || buf_location == MALLOC) {
+	if (ft_check_opts(FT_OPT_REG_DMABUF_MR) || buf_location == MALLOC) {
 		printf("Calling ibv_reg_mr(buf=%p, size=%zd)\n", buf, buf_size);
 		CHECK_NULL((mr = ibv_reg_mr(pd, buf, buf_size, mr_access_flags)));
 	} else {
-		buf_fd = xe_get_buf_fd(buf);
+		buf_fd = get_buf_fd(buf);
 		printf("Calling ibv_reg_dmabuf_mr(buf=%p, size=%zd, fd=%d)\n",
 			buf, buf_size, buf_fd);
 		CHECK_NULL((mr = ibv_reg_dmabuf_mr(pd, 0, buf_size,
@@ -180,7 +176,7 @@ int main(int argc, char *argv[])
 				buf_location = SHARED;
 			break;
 		case 'R':
-			use_dmabuf_reg = 1;
+			opts.options |= FT_OPT_REG_DMABUF_MR;
 			break;
 		case 'S':
 			buf_size = atol(optarg);
@@ -192,11 +188,11 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if (use_dmabuf_reg)
+	if (ft_check_opts(FT_OPT_REG_DMABUF_MR))
 		dmabuf_reg_open();
 
 	if (buf_location != MALLOC)
-		xe_init(gpu_dev_nums, 0);
+		ft_hmem_init(opts.iface);
 
 	init_buf();
 	init_ib();
@@ -204,9 +200,9 @@ int main(int argc, char *argv[])
 
 	dereg_mr();
 	free_ib();
-	free_buf();
+	free_buf(buf, buf_location);
 
-	if (use_dmabuf_reg)
+	if (ft_check_opts(FT_OPT_REG_DMABUF_MR))
 		dmabuf_reg_close();
 
 	return 0;

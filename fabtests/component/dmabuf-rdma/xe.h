@@ -31,7 +31,6 @@
 
 #include <stdint.h>
 #include "hmem.h"
-#include "level_zero/ze_api.h"
 
 #define MAX_GPUS	(8)
 
@@ -53,55 +52,42 @@ struct xe_buf {
 	void			*base;
 	uint64_t		offset;
 	size_t			size;
-	ze_device_handle_t	dev;
-	ze_memory_type_t	type;
 	int			location;
 };
-
-/*
- * Initialize GPU devices specified in the string of comma separated numbers.
- * Returns the number of GPU device successfully initialized.
- */
-int	xe_init(char *gpu_dev_nums, int enable_multi_gpu);
-
-/*
- * Get the device number for the ith successfully initialized GPU.
- */
-int	xe_get_dev_num(int i);
 
 /*
  * Alloctaed a buffer from specified location, on the speficied GPU if
  * applicable. The xe_buf output is optional, can pass in NULL if the
  * information is not needed.
  */
-void	*xe_alloc_buf(size_t page_size, size_t size, int where, int gpu,
+void	*alloc_buf(size_t page_size, size_t size, int where, int gpu,
 		      struct xe_buf *xe_buf);
 
 /*
- * Get the dma-buf fd associated with the buffer allocated with the oneAPI L0
+ * Get the dma-buf fd associated with the buffer allocated with the hmem
  * functions. Return -1 if it's not a dma-buf object.
  */
-int	xe_get_buf_fd(void *buf);
+int	get_buf_fd(void *buf);
 
 /*
  * Show the fields of the xe_buf structure.
  */
-void	xe_show_buf(struct xe_buf *buf);
+void	show_buf(struct xe_buf *buf);
 
 /*
- * Free the buffer allocated with xe_alloc_buf.
+ * Free the buffer allocated by alloc_buf.
  */
-void	xe_free_buf(void *buf, int where);
+void	free_buf(void *buf, int where);
 
 /*
- * Like memset(). Use oneAPI L0 to access device memory.
+ * Like memset(). Use hmem to access device memory.
  */
-void	xe_set_buf(void *buf, char c, size_t size, int location, int gpu);
+void	set_buf(void *buf, char c, size_t size, int location, int gpu);
 
 /*
  * Like memcpy(). Use oneAPI L0 to access device memory.
  */
-void	xe_copy_buf(void *dst, void *src, size_t size, int gpu);
+void	copy_buf(void *dst, void *src, size_t size, int gpu);
 
 
 /*
@@ -111,8 +97,6 @@ int	dmabuf_reg_open(void);
 void	dmabuf_reg_close(void);
 int	dmabuf_reg_add(uint64_t base, uint64_t size, int fd);
 void	dmabuf_reg_remove(uint64_t addr);
-
-extern int	use_dmabuf_reg;
 
 #endif /* _DMABUF_RDMA_TESTS_XE_H_ */
 

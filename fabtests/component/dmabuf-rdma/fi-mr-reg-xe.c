@@ -57,6 +57,7 @@
 #include <rdma/fabric.h>
 #include <rdma/fi_domain.h>
 #include <rdma/fi_endpoint.h>
+#include "shared.h"
 #include "util.h"
 #include "xe.h"
 
@@ -243,7 +244,7 @@ int main(int argc, char *argv[])
 	char *gpu_dev_nums = NULL;
 	int c;
 
-	while ((c = getopt(argc, argv, "d:D:e:p:m:RS:h")) != -1) {
+	while ((c = getopt(argc, argv, "d:D:e:I:p:m:RS:h")) != -1) {
 		switch (c) {
 		case 'd':
 			gpu_dev_nums = strdup(optarg);
@@ -258,6 +259,20 @@ int main(int argc, char *argv[])
 				ep_type = FI_EP_MSG;
 			else
 				printf("Invalid ep type %s, use default\n", optarg);
+			break;
+		case 'I':
+			if (!strncasecmp("ze", optarg, 2))
+				opts.iface = FI_HMEM_ZE;
+			else if (!strncasecmp("cuda", optarg, 4))
+				opts.iface = FI_HMEM_CUDA;
+			else if (!strncasecmp("neuron", optarg, 6))
+				opts.iface = FI_HMEM_NEURON;
+			else if (!strncasecmp("synapseai", optarg, 9))
+				opts.iface = FI_HMEM_SYNAPSEAI;
+			else
+				opts.iface = FI_HMEM_SYSTEM;
+
+			opts.options |= FT_OPT_ENABLE_HMEM | FT_OPT_USE_DEVICE;
 			break;
 		case 'p':
 			prov_name = strdup(optarg);
@@ -275,7 +290,7 @@ int main(int argc, char *argv[])
 				printf("Invalid buffer location %s, use default\n", optarg);
 			break;
 		case 'R':
-			use_dmabuf_reg = 1;
+			opts.options |= FT_OPT_REG_DMABUF_MR;
 			break;
 		case 'S':
 			buf_size = atoi(optarg);
@@ -287,11 +302,11 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if (use_dmabuf_reg)
+	if (ft_check_opts(FT_OPT_REG_DMABUF_MR))
 		dmabuf_reg_open();
 
 	if (buf_location != MALLOC)
-		xe_init(gpu_dev_nums, 0);
+		ft_hmem_init(opts.iface);
 
 	init_buf();
 	init_ofi();
@@ -305,7 +320,7 @@ int main(int argc, char *argv[])
 	finalize_ofi();
 	free_buf();
 
-	if (use_dmabuf_reg)
+	if (ft_check_opts(FT_OPT_REG_DMABUF_MR))
 		dmabuf_reg_close();
 
 	return 0;
