@@ -18,7 +18,7 @@ def checkout_ci() {
   sh """
     rm -rf ${env.CUSTOM_WORKSPACE}/ci
     mkdir ${env.CUSTOM_WORKSPACE}/ci
-    git clone --recurse-submodules ${env.CI} ${env.CUSTOM_WORKSPACE}/ci
+    git clone --recurse-submodules ${env.ZDWORKIN_CI} ${env.CUSTOM_WORKSPACE}/ci
   """
 }
 
@@ -148,7 +148,7 @@ def skip() {
 pipeline {
   agent {
     node {
-      label 'cbj-main'
+      label 'ze'
       customWorkspace "workspace/${JOB_NAME}/${env.BUILD_NUMBER}"
     }
   }
@@ -169,16 +169,7 @@ pipeline {
   stages {
     stage ('init') {
       parallel {
-        stage ('main') {
-          steps {
-            script {
-              initialize()
-            }
-          }
-        }
         stage ('level-zero') {
-          agent { node { label 'level-zero' } }
-          options { skipDefaultCheckout() }
           steps {
             script {
               initialize()
@@ -193,37 +184,21 @@ pipeline {
           git_diffs()
           RELEASE = release()
           DO_RUN = skip() && !weekly ? false : true
-          sh """PATH=${CI_LOCATION}/venv/bin/:${env.PATH} \
-                python ${CI_LOCATION}/authorize.py \
-                --author=${env.CHANGE_AUTHOR}
-          """
+          // sh """PATH=${CI_LOCATION}/venv/bin/:${env.PATH} \
+          //       python ${CI_LOCATION}/authorize.py \
+          //       --author=${env.CHANGE_AUTHOR}
+          // """
         }
       }
     }
     stage ('run') {
       when { equals expected: true, actual: DO_RUN }
       parallel {
-        stage ('main') {
-          steps {
-            script {
-              withEnv(["TARGET=CTARGET"]) {
-                dir (CI_LOCATION) {
-                  return run_red("${env.MAIN_CONFIG}")
-                }
-              }
-            }
-          }
-        }
         stage ('level-zero') {
-          agent { node { label 'level-zero' } }
-          options { skipDefaultCheckout() }
           steps {
             script {
               dir (CI_LOCATION) {
-                def ret = run_red("${env.LEVEL_ZERO_CONFIG}")
-                send_logs("${env.CBJ_ADDR}", "${env.CBJ_KEY}",
-                          "${env.LOG_DIR}", "${env.LOG_DIR}")
-                return ret
+                run_red("jfcst-pvc")
               }
             }
           }
@@ -247,10 +222,6 @@ pipeline {
           CI_summarize(verbose=true)
           CI_summarize()
         }
-      }
-      node ('level-zero') {
-        dir("${env.WORKSPACE}") { deleteDir() }
-        dir("${env.WORKSPACE}@tmp") { deleteDir() }
       }
       dir("${env.WORKSPACE}") { deleteDir() }
       dir("${env.WORKSPACE}@tmp") { deleteDir() }
