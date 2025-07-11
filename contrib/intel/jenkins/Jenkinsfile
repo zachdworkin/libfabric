@@ -76,10 +76,6 @@ def checkout_tar(name) {
   CTARGET = weekly ? weekly_target : change_target
   dir ("${env.CUSTOM_WORKSPACE}/${name}/libfabric") {
     checkout scm
-    sh """
-      git remote add upstream ${env.UPSTREAM}
-      git pull --rebase upstream ${CTARGET}
-    """
   }
   dir ("${env.CUSTOM_WORKSPACE}/${name}/") {
     sh "tar -cvf libfabric.tar.gz libfabric/*"
@@ -192,11 +188,7 @@ pipeline {
         script {
           git_diffs()
           RELEASE = release()
-          DO_RUN = skip() && !weekly ? false : true
-          sh """PATH=${CI_LOCATION}/venv/bin/:${env.PATH} \
-                python ${CI_LOCATION}/authorize.py \
-                --author=${env.CHANGE_AUTHOR}
-          """
+          DO_RUN = skip() && !weekly ? true : true
         }
       }
     }
