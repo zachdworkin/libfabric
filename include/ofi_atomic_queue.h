@@ -101,6 +101,17 @@ enum {
 	OFI_AQ_NOOP,
 };
 
+#include <stdlib.h>
+
+static int threshold = -1;
+static inline void get_smr_atomic_discard_threshold(void)
+{
+	if (threshold < 0) {
+		const char *env = getenv("SMR_ATOMIC_DISCARD_THRESHOLD");
+		threshold = (env) ? atoi(env) : 1023;
+	}
+}
+
 /*
  * Base address of atomic queue must be cache line aligned to maximize atomic
  * value perforamnce benefits
@@ -117,13 +128,14 @@ struct name {							\
 			     sizeof(ofi_atomic64_t)];		\
 	int64_t		read_pos;				\
 	ofi_aq_init_fn	init_fn;				\
+	int		discard;				\
 	uint8_t		pad1[OFI_CACHE_LINE_SIZE -		\
 			     (sizeof(int64_t) +			\
-			     sizeof(ofi_aq_init_fn))];		\
+			     sizeof(ofi_aq_init_fn) +		\
+			     sizeof(int))];			\
 	ofi_atomic64_t	claim_avail;				\
 	uint8_t		pad2[OFI_CACHE_LINE_SIZE -		\
 			     sizeof(ofi_atomic64_t)];		\
-	ofi_atomic64_t	discard_avail;				\
 	uint8_t		pad3[OFI_CACHE_LINE_SIZE -		\
 			     sizeof(ofi_atomic64_t)];		\
 	int		size;					\
@@ -144,8 +156,9 @@ static inline void name ## _init(struct name *aq, size_t size,	\
 	aq->init_fn = init_fn;					\
 	ofi_atomic_initialize64(&aq->write_pos, 0);		\
 	aq->read_pos = 0;					\
-	ofi_atomic_initialize64(&aq->discard_avail, 0);		\
+	aq->discard = 0;					\
 	ofi_atomic_initialize64(&aq->claim_avail, size);	\
+	get_smr_atomic_discard_threshold();			\
 	for (i = 0; i < size; i++) {				\
 		if (aq->init_fn)				\
 			aq->init_fn(&aq->entry[i].buf);		\
@@ -172,25 +185,12 @@ static inline void name ## _free(struct name *aq)		\
 }								\
 static inline bool name ## _claim(struct name *aq)		\
 {								\
-	int64_t avail, discard_avail;				\
+	int64_t avail;						\
 	avail = ofi_atomic_sub_explicit64(&aq->claim_avail, 1,	\
 					  memory_order_relaxed);\
 	if (avail > 0)						\
 		return true;					\
 								\
-	discard_avail = ofi_atomic_load_explicit64(		\
-					&aq->discard_avail,	\
-					memory_order_acquire);	\
-	if (discard_avail) {					\
-		if (!ofi_atomic_compare_exchange_weak64(	\
-					&aq->discard_avail,	\
-					&discard_avail, 0))	\
-			goto out;				\
-		ofi_atomic_add_explicit64(&aq->claim_avail,	\
-					  discard_avail,	\
-					  memory_order_relaxed);\
-	}							\
-out:								\
 	ofi_atomic_add_explicit64(&aq->claim_avail, 1,		\
 				  memory_order_relaxed);	\
 	return false;						\
@@ -231,8 +231,13 @@ static inline void name ## _release(struct name *aq,		\
 }								\
 static inline void name ## _discard(struct name *aq)		\
 {								\
-	ofi_atomic_add_explicit64(&aq->discard_avail, 1,	\
-		memory_order_relaxed);				\
+	aq->discard++;						\
+	if (aq->discard < threshold)				\
+		return;						\
+	ofi_atomic_add_explicit64(&aq->claim_avail,		\
+				  aq->discard,			\
+				  memory_order_relaxed);	\
+	aq->discard = 0;					\
 }								\
 static inline void name ## _release_discard(struct name *aq,	\
 					    entrytype *buf)	\
