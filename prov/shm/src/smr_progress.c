@@ -703,7 +703,8 @@ static int smr_start_common(struct smr_ep *ep, struct smr_cmd *cmd,
 	uint64_t comp_flags;
 	void *comp_buf;
 	int ret;
-	bool return_cmd = cmd->hdr.proto != smr_proto_inline;
+	bool return_cmd = cmd->hdr.proto != smr_proto_inline &&
+			  cmd->hdr.proto != smr_proto_inject;
 
 	rx_entry->peer_context = NULL;
 	assert (cmd->hdr.proto < smr_proto_max);

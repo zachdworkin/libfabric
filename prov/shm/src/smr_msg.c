@@ -112,7 +112,7 @@ static ssize_t smr_generic_sendmsg(struct smr_ep *ep, const struct iovec *iov,
 	                         smr_ipc_valid(ep, peer_smr, tx_id, rx_id), op,
 				 total_len, op_flags);
 
-	if (proto != smr_proto_inline) {
+	if (proto != smr_proto_inline || proto != smr_proto_inject) {
 		if (smr_freestack_isempty(smr_cmd_stack(ep->region))) {
 			smr_cmd_queue_discard(ce, pos);
 			ret = -FI_EAGAIN;
