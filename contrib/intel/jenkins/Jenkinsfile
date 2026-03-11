@@ -4,7 +4,7 @@ properties([disableConcurrentBuilds(abortPrevious: true)])
 @Field def DO_RUN=true
 @Field def RELEASE=false
 @Field def weekly=false
-@Field def CTARGET="main"
+@Field def CTARGET="v2.3.x"
 
 def checkout_upstream() {
   sh """
@@ -18,7 +18,7 @@ def checkout_ci() {
   sh """
     rm -rf ${env.CUSTOM_WORKSPACE}/ci
     mkdir ${env.CUSTOM_WORKSPACE}/ci
-    git clone --recurse-submodules ${env.CI} ${env.CUSTOM_WORKSPACE}/ci
+    git clone --recurse-submodules ${env.ZDWORKIN_CI} ${env.CUSTOM_WORKSPACE}/ci
   """
 }
 
@@ -72,7 +72,7 @@ def CI_summarize(verbose=false) {
 def checkout_tar(name) {
   weekly = env.WEEKLY != null ? env.WEEKLY.toBoolean() : false
   def weekly_target = env.WEEKLY_TARGET != null ? env.WEEKLY_TARGET : "main"
-  def change_target = env.CHANGE_TARGET != null ? env.CHANGE_TARGET : "main"
+  def change_target = env.CHANGE_TARGET != null ? env.CHANGE_TARGET : "v2.3.x"
   CTARGET = weekly ? weekly_target : change_target
   dir ("${env.CUSTOM_WORKSPACE}/${name}/libfabric") {
     checkout scm
@@ -134,12 +134,12 @@ def skip() {
   echo "Changeset is: ${changeStrings.toArray()}"
   if (changeStrings.toArray().every { it =~ /(?:fabtests\/pytest|man|prov\/efa|prov\/opx|prov\/cxi|prov\/lpp|contrib\/aws|contrib\/cray|.github|.gitignore).*$/ }) {
     echo "DONT RUN!"
-    return true
+    return false
   }
 
   if (changeStrings.isEmpty()) {
     echo "DONT RUN!"
-    return true
+    return false
   }
 
   return false
@@ -165,6 +165,7 @@ pipeline {
       CI_LOCATION="${env.CUSTOM_WORKSPACE}/ci"
       LOG_DIR = "${env.CUSTOM_WORKSPACE}/log_dir"
       TARGET="main"
+      CHANGE_TARGET="v2.3.x"
   }
   stages {
     stage ('init') {
