@@ -286,9 +286,16 @@ static int smr_format_inject(struct smr_ep *ep, struct smr_region *peer_smr,
 		return -FI_EAGAIN;
 	}
 
-	cmd->data.inject_buf_index = smr_freestack_get_index(
-						smr_inject_pool(peer_smr),
-						(char *)tx_buf);
+	/* sizeof(struct smr_inject_buf) == SMR_INJECT_SIZE == 4096 == 2^12
+	 * is known at compile time, so compute the freestack index with a
+	 * shift instead of calling smr_freestack_get_index() which uses a
+	 * runtime divq (~20-30 cycles on x86, ~50+ cycles on Arm). */
+	{
+		struct smr_freestack *ifs = smr_inject_pool(peer_smr);
+		uint64_t offset = ((char *)tx_buf - (char *)ifs) -
+				  ifs->entry_base_offset;
+		cmd->data.inject_buf_index = (int16_t)(offset >> 12);
+	}
 	if (cmd->hdr.op != ofi_op_read_req)
 		cmd->hdr.size = ofi_copy_from_mr_iov(tx_buf->data,
 						     SMR_INJECT_SIZE,
