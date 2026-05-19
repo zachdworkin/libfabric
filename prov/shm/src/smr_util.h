@@ -269,6 +269,7 @@ struct smr_region {
 		size_t			sar_pool_offset;
 		size_t			peer_data_offset;
 		size_t			name_offset;
+		size_t			resp_queue_offset;
 	} __attribute__ ((aligned(64)));
 };
 
@@ -288,6 +289,15 @@ static inline uint8_t smr_get_vma_cap(uint8_t vma_cap, uint8_t type)
 {
 	return vma_cap & (1 << type);
 }
+
+#define SMR_STATUS_BUSY	UINT64_MAX
+
+struct smr_resp {
+	uint64_t	msg_id;
+	uint64_t	status;
+};
+
+OFI_DECLARE_CIRQUE(struct smr_resp, smr_resp_queue);
 
 struct smr_inject_buf {
 	union {
@@ -325,6 +335,11 @@ static inline struct smr_cmd_queue *smr_cmd_queue(struct smr_region *smr)
 static inline struct smr_freestack *smr_cmd_stack(struct smr_region *smr)
 {
 	return (struct smr_freestack *) ((char *) smr + smr->cmd_stack_offset);
+}
+
+static inline struct smr_resp_queue *smr_resp_queue(struct smr_region *smr)
+{
+	return (struct smr_resp_queue *) ((char *) smr + smr->resp_queue_offset);
 }
 static inline struct smr_freestack *smr_inject_pool(struct smr_region *smr)
 {

@@ -401,8 +401,6 @@ int smr_select_proto(void **desc, size_t iov_count, bool vma_avail,
 		*smr_flags |= SMR_RETURN_CMD;
 		if (use_ipc)
 			return smr_proto_ipc;
-		if (total_len <= SMR_INJECT_SIZE)
-			return smr_proto_inject;
 		if (vma_avail && FI_HMEM_SYSTEM == iface)
 			return smr_proto_iov;
 		return smr_proto_sar;
@@ -505,6 +503,52 @@ err:
 	if (pend)
 		ofi_buf_free(pend);
 	return ret;
+}
+
+
+ssize_t smr_do_iov_fast(struct smr_ep *ep, struct smr_region *peer_smr,
+			int64_t tx_id, int64_t rx_id, uint32_t op,
+			uint64_t tag, uint64_t data, uint64_t op_flags,
+			struct ofi_mr **desc, const struct iovec *iov,
+			size_t iov_count, size_t total_len,
+			void *context, struct smr_cmd *cmd)
+{
+	struct smr_iov_pend *pend;
+	struct smr_resp *resp;
+
+	if (ofi_cirque_isfull(smr_resp_queue(ep->region))) {
+		smr_progress_resp(ep);
+		if (ofi_cirque_isfull(smr_resp_queue(ep->region)))
+			return -FI_EAGAIN;
+	}
+
+	resp = ofi_cirque_next(smr_resp_queue(ep->region));
+	pend = ofi_freestack_pop(ep->iov_pend_fs);
+
+	pend->context = context;
+	pend->op_flags = op_flags;
+	pend->op = op;
+
+	resp->msg_id = (uint64_t)(uintptr_t) pend;
+	resp->status = SMR_STATUS_BUSY;
+
+	cmd->hdr.op = op;
+	cmd->hdr.smr_flags = 0;  /* NOT setting SMR_RETURN_CMD - using resp instead */
+	cmd->hdr.rx_id = rx_id;
+	cmd->hdr.tx_id = tx_id;
+	cmd->hdr.cq_data = data;
+	cmd->hdr.tag = tag;
+	cmd->hdr.rx_ctx = 0;
+	cmd->hdr.proto = smr_proto_iov;
+	cmd->hdr.size = total_len;
+	cmd->hdr.proto_data = smr_get_offset(ep->region, resp);
+
+	cmd->data.iov_count = iov_count;
+	memcpy(cmd->data.iov, iov, sizeof(*iov) * iov_count);
+
+	ep->pending_resp_cnt++;
+	ofi_cirque_commit(smr_resp_queue(ep->region));
+	return FI_SUCCESS;
 }
 
 static ssize_t smr_do_iov(struct smr_ep *ep, struct smr_region *peer_smr,
@@ -656,6 +700,8 @@ static int smr_ep_close(struct fid *fid)
 	if (ep->unexp_buf_pool)
 		ofi_bufpool_destroy(ep->unexp_buf_pool);
 
+	if (ep->iov_pend_fs)
+		smr_iov_pend_fs_free(ep->iov_pend_fs);
 	if (ep->pend_pool)
 		ofi_bufpool_destroy(ep->pend_pool);
 
@@ -977,7 +1023,16 @@ static int smr_create_pools(struct smr_ep *ep, struct fi_info *info)
 	if (ret)
 		goto free1;
 
+	ep->iov_pend_fs = smr_iov_pend_fs_create(ep->tx_size, NULL, NULL);
+	if (!ep->iov_pend_fs) {
+		ret = -FI_ENOMEM;
+		goto free0;
+	}
+
 	return FI_SUCCESS;
+
+free0:
+	ofi_bufpool_destroy(ep->pend_pool);
 
 free1:
 	ofi_bufpool_destroy(ep->unexp_buf_pool);

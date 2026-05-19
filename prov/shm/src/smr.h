@@ -37,6 +37,14 @@
 #include "ofi_shm_p2p.h"
 #include "ofi_util.h"
 
+struct smr_iov_pend {
+	void		*context;
+	uint64_t	op_flags;
+	uint32_t	op;
+};
+
+OFI_DECLARE_FREESTACK(struct smr_iov_pend, smr_iov_pend_fs);
+
 struct smr_ep {
 	struct util_ep		util_ep;
 	size_t			tx_size;
@@ -56,6 +64,9 @@ struct smr_ep {
 	struct dlist_entry	unexp_cmd_list;
 	size_t			min_multi_recv_size;
 
+	struct smr_iov_pend_fs	*iov_pend_fs;
+	int			pending_return_cnt;
+	int			pending_resp_cnt;
 	int			ep_idx;
 	bool			user_setname;
 	enum ofi_shm_p2p_type	p2p_type;
@@ -63,6 +74,15 @@ struct smr_ep {
 	void 			(*smr_progress_async)(struct smr_ep *ep);
 };
 
+
+void smr_progress_resp(struct smr_ep *ep);
+
+ssize_t smr_do_iov_fast(struct smr_ep *ep, struct smr_region *peer_smr,
+			int64_t tx_id, int64_t rx_id, uint32_t op,
+			uint64_t tag, uint64_t data, uint64_t op_flags,
+			struct ofi_mr **desc, const struct iovec *iov,
+			size_t iov_count, size_t total_len,
+			void *context, struct smr_cmd *cmd);
 
 struct smr_map {
 	int64_t			cur_id;

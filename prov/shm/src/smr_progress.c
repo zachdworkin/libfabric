@@ -290,6 +290,13 @@ static ssize_t smr_progress_iov(struct smr_ep *ep, struct smr_cmd *cmd,
 	if (ret)
 		cmd->hdr.smr_flags |= SMR_OP_ERROR;
 
+	/* IOV fast path: signal sender via resp_queue */
+	if (cmd->hdr.proto_data) {
+		struct smr_resp *resp = smr_get_ptr(peer_smr,
+						    cmd->hdr.proto_data);
+		resp->status = (uint64_t)(-ret);
+	}
+
 	return ret;
 }
 
@@ -1458,6 +1465,53 @@ void smr_progress_async(struct smr_ep *ep)
 	}
 }
 
+
+void smr_progress_resp(struct smr_ep *ep)
+{
+	struct smr_resp_queue *q = smr_resp_queue(ep->region);
+	struct smr_resp *resp;
+	struct smr_iov_pend *pend;
+	size_t i, mask = q->size_mask;
+	int ret;
+
+	/* Scan all in-flight slots and process any that are done.
+	 * Out-of-order completion: process slots regardless of position.
+	 * Use msg_id == 0 as marker for already-processed slots. */
+	for (i = q->rcnt; i != q->wcnt; i++) {
+		resp = &q->buf[i & mask];
+		if (resp->status == SMR_STATUS_BUSY)
+			continue;
+		if (resp->msg_id == 0)
+			continue;  /* already processed */
+
+		pend = (struct smr_iov_pend *)(uintptr_t) resp->msg_id;
+		if (resp->status) {
+			ret = smr_write_err_comp(ep->util_ep.tx_cq,
+						 pend->context,
+						 pend->op_flags, 0,
+						 -(int64_t)resp->status);
+		} else {
+			ret = smr_complete_tx(ep, pend->context,
+					      pend->op, pend->op_flags);
+		}
+		if (ret) {
+			FI_WARN(&smr_prov, FI_LOG_EP_CTRL,
+				"unable to process tx completion\n");
+		}
+		ep->pending_resp_cnt--;
+		ofi_freestack_push(ep->iov_pend_fs, pend);
+		resp->msg_id = 0;  /* mark processed */
+	}
+
+	/* Advance rcnt past contiguous processed slots */
+	while (q->rcnt != q->wcnt) {
+		resp = &q->buf[q->rcnt & mask];
+		if (resp->msg_id != 0)
+			break;  /* not yet processed (or sender just allocated) */
+		q->rcnt++;
+	}
+}
+
 void smr_ep_progress(struct util_ep *util_ep)
 {
 	struct smr_ep *ep;
@@ -1484,7 +1538,9 @@ void smr_ep_progress(struct util_ep *util_ep)
 	if (smr_env.use_dsa_sar)
 		smr_dsa_progress(ep);
 
-	smr_progress_return(ep);
+	smr_progress_resp(ep);
+	if (ep->pending_return_cnt)
+		smr_progress_return(ep);
 
 	if (!slist_empty(&ep->overflow_list))
 		smr_progress_overflow(ep);

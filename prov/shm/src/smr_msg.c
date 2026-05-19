@@ -113,6 +113,26 @@ static ssize_t smr_generic_sendmsg(struct smr_ep *ep, const struct iovec *iov,
 	                         smr_ipc_valid(ep, peer_smr, tx_id, rx_id), op,
 				 total_len, op_flags, &smr_flags);
 	if (smr_flags & SMR_RETURN_CMD) {
+		if (proto == smr_proto_iov) {
+			/* IOV fast path: use ce->cmd, cirque-based completion */
+			cmd = &ce->cmd;
+			/* CRITICAL: receiver reads ce->ptr to find cmd; reset
+			 * to receivers view of &ce->cmd in case prior message
+			 * with SMR_RETURN_CMD overwrote it */
+			ce->ptr = smr_peer_to_peer(ep, peer_smr, tx_id,
+						   (uintptr_t) &ce->cmd);
+			ret = smr_do_iov_fast(ep, peer_smr, tx_id, rx_id, op,
+					      tag, data, op_flags,
+					      (struct ofi_mr **) desc, iov,
+					      iov_count, total_len, context, cmd);
+			if (ret) {
+				smr_cmd_queue_discard(ce, pos);
+				goto unlock;
+			}
+			smr_cmd_queue_commit(ce, pos);
+			ret = 0;
+			goto unlock;
+		}
 		if (smr_freestack_isempty(smr_cmd_stack(ep->region))) {
 			smr_cmd_queue_discard(ce, pos);
 			ret = -FI_EAGAIN;
@@ -123,6 +143,7 @@ static ssize_t smr_generic_sendmsg(struct smr_ep *ep, const struct iovec *iov,
 		assert(cmd);
 		ce->ptr = smr_local_to_peer(ep, peer_smr, tx_id, rx_id,
 					    (uintptr_t) cmd);
+		ep->pending_return_cnt++;
 	} else {
 		cmd = &ce->cmd;
 	}

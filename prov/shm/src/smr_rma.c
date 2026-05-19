@@ -120,6 +120,49 @@ static inline bool smr_do_fast_rma(struct smr_ep *ep, uint64_t op_flags,
 
 }
 
+
+static inline ssize_t smr_rma_inline_writedata(struct smr_ep *ep,
+		struct smr_region *peer_smr, int64_t tx_id, int64_t rx_id,
+		const struct iovec *iov, size_t iov_count,
+		const struct fi_rma_iov *rma_iov, size_t rma_count,
+		void *context, uint64_t data, uint64_t op_flags)
+{
+	struct smr_cmd_entry *ce;
+	struct smr_cmd *cmd;
+	int64_t pos;
+	ssize_t ret;
+
+	ret = smr_cmd_queue_next(smr_cmd_queue(peer_smr), &ce, &pos);
+	if (ret == -FI_ENOENT)
+		return -FI_EAGAIN;
+
+	cmd = &ce->cmd;
+	cmd->hdr.op = ofi_op_write;
+	cmd->hdr.proto = smr_proto_inline;
+	cmd->hdr.smr_flags = SMR_REMOTE_CQ_DATA;
+	cmd->hdr.rx_id = rx_id;
+	cmd->hdr.tx_id = tx_id;
+	cmd->hdr.cq_data = data;
+	cmd->hdr.tag = 0;
+	cmd->hdr.proto_data = 0;
+	cmd->hdr.tx_ctx = 0;
+	cmd->hdr.rx_ctx = 0;
+	cmd->hdr.size = ofi_copy_from_mr_iov(cmd->data.msg, SMR_MSG_DATA_LEN,
+					     NULL, iov, iov_count, 0);
+
+	cmd->rma.rma_count = rma_count;
+	memcpy(cmd->rma.rma_iov, rma_iov, sizeof(*rma_iov) * rma_count);
+
+	smr_cmd_queue_commit(ce, pos);
+
+	ret = smr_complete_tx(ep, context, ofi_op_write, op_flags);
+	if (ret)
+		FI_WARN(&smr_prov, FI_LOG_EP_CTRL,
+			"unable to process tx completion\n");
+
+	return FI_SUCCESS;
+}
+
 static ssize_t smr_generic_rma(
 		struct smr_ep *ep, const struct iovec *iov,
 		size_t iov_count, const struct fi_rma_iov *rma_iov,
@@ -153,6 +196,18 @@ static ssize_t smr_generic_rma(
 		goto unlock;
 
 	total_len = ofi_total_iov_len(iov, iov_count);
+
+	/* Inline writedata fast path: skip select_proto and indirect dispatch */
+	if ((op_flags & FI_REMOTE_CQ_DATA) &&
+	    !(op_flags & FI_DELIVERY_COMPLETE) &&
+	    total_len <= SMR_MSG_DATA_LEN && op == ofi_op_write) {
+		ret = smr_rma_inline_writedata(ep, peer_smr, tx_id, rx_id,
+					      iov, iov_count, rma_iov,
+					      rma_count, context, data,
+					      op_flags);
+		goto unlock;
+	}
+
 	if (smr_do_fast_rma(ep, op_flags, rma_count, total_len, peer_smr)) {
 		ret = smr_rma_fast(ep, peer_smr, iov, iov_count, rma_iov,
 				   rma_count, desc, rx_id, tx_id, context, op,
@@ -172,6 +227,24 @@ static ssize_t smr_generic_rma(
 	                         smr_ipc_valid(ep, peer_smr, tx_id, rx_id), op,
 				 total_len, op_flags, &smr_flags);
 	if (smr_flags & SMR_RETURN_CMD) {
+		if (proto == smr_proto_iov &&
+		    !(op_flags & FI_REMOTE_CQ_DATA)) {
+			/* IOV fast path for RMA: use ce->cmd with resp_queue */
+			cmd = &ce->cmd;
+			ce->ptr = smr_peer_to_peer(ep, peer_smr, tx_id,
+						   (uintptr_t) &ce->cmd);
+			ret = smr_do_iov_fast(ep, peer_smr, tx_id, rx_id, op,
+					      0, data, op_flags,
+					      (struct ofi_mr **)desc, iov,
+					      iov_count, total_len, context, cmd);
+			if (ret) {
+				smr_cmd_queue_discard(ce, pos);
+				goto unlock;
+			}
+			smr_add_rma_cmd(peer_smr, rma_iov, rma_count, cmd);
+			smr_cmd_queue_commit(ce, pos);
+			goto unlock;
+		}
 		if (smr_freestack_isempty(smr_cmd_stack(ep->region))) {
 			smr_cmd_queue_discard(ce, pos);
 			ret = -FI_EAGAIN;
@@ -181,6 +254,7 @@ static ssize_t smr_generic_rma(
 		assert(cmd);
 		ce->ptr = smr_local_to_peer(ep, peer_smr, tx_id, rx_id,
 					    (uintptr_t) cmd);
+		ep->pending_return_cnt++;
 	} else {
 		cmd = &ce->cmd;
 	}
