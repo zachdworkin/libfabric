@@ -688,7 +688,11 @@ static int smr_progress_inject_atomic(struct smr_cmd *cmd, struct ofi_mr **mr,
 		*len += ioc[i].count * ofi_datatype_size(cmd->hdr.datatype);
 	}
 
-	smr_return_inject_buf(ep->region, tx_buf);
+	/* For fetch/compare atomics the result is written back into tx_buf and
+	 * read by the initiator, which frees it on return cmd processing. Only
+	 * free here for plain atomics to avoid double-freeing the inject buf. */
+	if (cmd->hdr.op == ofi_op_atomic)
+		smr_return_inject_buf(ep->region, tx_buf);
 	if (*len != cmd->hdr.size) {
 		FI_WARN(&smr_prov, FI_LOG_EP_CTRL, "recv truncated");
 		return -FI_ETRUNC;
