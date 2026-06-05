@@ -168,7 +168,7 @@ static ssize_t smr_generic_rma(
 	proto = smr_select_proto(desc, iov_count, smr_vma_enabled(ep, peer_smr),
 	                         smr_ipc_valid(ep, peer_smr, tx_id, rx_id), op,
 				 total_len, op_flags);
-	if (proto != smr_proto_inline) {
+	if (proto != smr_proto_inline && proto != smr_proto_iov) {
 		if (smr_freestack_isempty(smr_cmd_stack(ep->region))) {
 			smr_cmd_queue_discard(ce, pos);
 			ret = -FI_EAGAIN;
@@ -185,7 +185,7 @@ static ssize_t smr_generic_rma(
 				  op_flags, (struct ofi_mr **)desc, iov,
 				  iov_count, total_len, context, cmd);
 	if (ret) {
-		if (proto != smr_proto_inline)
+		if (proto != smr_proto_inline && proto != smr_proto_iov)
 			smr_freestack_push(smr_cmd_stack(ep->region), cmd);
 		smr_cmd_queue_discard(ce, pos);
 		goto unlock;

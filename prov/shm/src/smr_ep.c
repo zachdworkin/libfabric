@@ -481,6 +481,19 @@ static ssize_t smr_do_inject(struct smr_ep *ep, struct smr_region *peer_smr,
 	return FI_SUCCESS;
 }
 
+static inline void smr_alloc_resp_slot(struct smr_ep *ep,
+				       struct smr_cmd *cmd,
+				       struct smr_pend_entry *pend)
+{
+	int slot = __builtin_ctzll(~ep->slot_bitmap);
+
+	ep->slot_bitmap |= (1ULL << slot);
+	ep->slot_pend[slot] = pend;
+	cmd->hdr.resv2 = slot;
+	cmd->hdr.op_flags |= SMR_RESP_SLOT_RETURN;
+	smr_resp_slots(ep->region)[slot].status = 0;
+}
+
 static ssize_t smr_do_iov(struct smr_ep *ep, struct smr_region *peer_smr,
 			  int64_t tx_id, int64_t rx_id, uint32_t op,
 			  uint64_t tag, uint64_t data, uint64_t op_flags,
@@ -490,6 +503,9 @@ static ssize_t smr_do_iov(struct smr_ep *ep, struct smr_region *peer_smr,
 {
 	struct smr_pend_entry *pend;
 
+	if (ep->slot_bitmap == ~0ULL)
+		return -FI_EAGAIN;
+
 	pend = ofi_buf_alloc(ep->pend_pool);
 	assert(pend);
 
@@ -497,11 +513,11 @@ static ssize_t smr_do_iov(struct smr_ep *ep, struct smr_region *peer_smr,
 	smr_format_tx_pend(pend, cmd, context, desc, iov, iov_count, op_flags);
 
 	smr_generic_format(cmd, tx_id, rx_id, op, tag, data, op_flags);
+	pend->op = op;
 	smr_format_iov(cmd, pend);
 
-	if (smr_freestack_avail(smr_cmd_stack(ep->region)) <=
-	    smr_env.buffer_threshold)
-		cmd->hdr.op_flags |= SMR_BUFFER_RECV;
+	smr_alloc_resp_slot(ep, cmd, pend);
+
 
 	return FI_SUCCESS;
 }
@@ -515,6 +531,9 @@ static ssize_t smr_do_sar(struct smr_ep *ep, struct smr_region *peer_smr,
 {
 	struct smr_pend_entry *pend;
 	int ret;
+
+	if (ep->slot_bitmap == ~0ULL)
+		return -FI_EAGAIN;
 
 	pend = ofi_buf_alloc(ep->pend_pool);
 	assert(pend);
@@ -531,6 +550,8 @@ static ssize_t smr_do_sar(struct smr_ep *ep, struct smr_region *peer_smr,
 		pend->sar_copy_fn = &smr_copy_sar;
 
 	smr_generic_format(cmd, tx_id, rx_id, op, tag, data, op_flags);
+	pend->op = op;
+	smr_alloc_resp_slot(ep, cmd, pend);
 	ret = smr_format_sar(ep, cmd, desc, iov, iov_count, total_len,
 			     ep->region, peer_smr, pend);
 	if (ret)
@@ -548,6 +569,9 @@ static ssize_t smr_do_ipc(struct smr_ep *ep, struct smr_region *peer_smr,
 {
 	struct smr_pend_entry *pend;
 	int ret = -FI_EAGAIN;
+
+		if (ep->slot_bitmap == ~0ULL)
+		return -FI_EAGAIN;
 
 	pend = ofi_buf_alloc(ep->pend_pool);
 	assert(pend);
@@ -569,6 +593,8 @@ static ssize_t smr_do_ipc(struct smr_ep *ep, struct smr_region *peer_smr,
 	}
 
 	smr_format_tx_pend(pend, cmd, context, desc, iov, iov_count, op_flags);
+	pend->op = op;
+	smr_alloc_resp_slot(ep, cmd, pend);
 
 	if (smr_freestack_avail(smr_cmd_stack(ep->region)) <=
 	    smr_env.buffer_threshold)

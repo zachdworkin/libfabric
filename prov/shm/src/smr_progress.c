@@ -173,47 +173,54 @@ static int smr_progress_return_entry(struct smr_ep *ep, struct smr_cmd *cmd,
 
 static void smr_progress_return(struct smr_ep *ep)
 {
-	struct smr_return_entry *queue_entry;
-	struct smr_cmd *cmd;
-	struct smr_pend_entry *pending;
-	int64_t pos;
-	int ret;
+	/* Out-of-order completion via resp slots (all protocols) */
+	{
+		uint64_t cc = __atomic_load_n(smr_comp_count(ep->region),
+					     __ATOMIC_ACQUIRE);
+		if (cc != ep->last_comp_count) {
+			uint64_t to_find = cc - ep->last_comp_count;
+			uint64_t slots_pending = ep->slot_bitmap;
 
-	while (1) {
-		ret = smr_return_queue_head(smr_return_queue(ep->region),
-					    &queue_entry, &pos);
-		if (ret == -FI_ENOENT)
-			break;
+			while (slots_pending && to_find) {
+				int slot = __builtin_ctzll(slots_pending);
 
-		cmd = (struct smr_cmd *) queue_entry->ptr;
-		pending = (struct smr_pend_entry *) cmd->hdr.tx_ctx;
+				if (smr_resp_slots(ep->region)[slot].status) {
+					struct smr_pend_entry *pend =
+						ep->slot_pend[slot];
+					struct smr_cmd *cmd = pend->cmd;
+					int ret;
 
-		ret = smr_progress_return_entry(ep, cmd, pending);
-		if (ret != -FI_EAGAIN) {
-			if (pending) {
-				if (cmd->hdr.op_flags & SMR_OP_ERROR) {
-					ret = smr_write_err_comp(
+					ret = smr_progress_return_entry(ep,
+							cmd, pend);
+					if (ret == -FI_EAGAIN) {
+						slots_pending &= ~(1ULL << slot);
+						continue;
+					}
+
+					ep->slot_bitmap &= ~(1ULL << slot);
+					if (cmd->hdr.op_flags & SMR_OP_ERROR) {
+						smr_write_err_comp(
 							ep->util_ep.tx_cq,
-							pending->comp_ctx,
-							pending->comp_flags,
+							pend->comp_ctx,
+							pend->comp_flags,
 							cmd->hdr.tag, -FI_EIO);
-				} else {
-					ret = smr_complete_tx(
-							ep, pending->comp_ctx,
-							cmd->hdr.op,
-							pending->comp_flags);
+					} else {
+						smr_complete_tx(ep,
+							pend->comp_ctx,
+							pend->op,
+							pend->comp_flags);
+					}
+					if (cmd->hdr.proto != smr_proto_iov)
+						smr_freestack_push(
+							smr_cmd_stack(ep->region),
+							cmd);
+					ofi_buf_free(pend);
+					to_find--;
 				}
-				if (ret) {
-					FI_WARN(&smr_prov, FI_LOG_EP_CTRL,
-						"unable to process "
-						"tx completion\n");
-				}
-				ofi_buf_free(pending);
+				slots_pending &= ~(1ULL << slot);
 			}
-			smr_freestack_push(smr_cmd_stack(ep->region), cmd);
+			ep->last_comp_count = cc;
 		}
-		smr_return_queue_release(smr_return_queue(ep->region),
-					 queue_entry, pos);
 	}
 }
 
@@ -930,7 +937,8 @@ static int smr_unexp_iov(struct smr_ep *ep, struct smr_cmd_ctx *cmd_ctx,
 	int ret = FI_SUCCESS;
 
 	if (!(cmd->hdr.op_flags & SMR_BUFFER_RECV)) {
-		cmd_ctx->cmd = cmd;
+		memcpy(&cmd_ctx->cmd_cpy, cmd, sizeof(*cmd));
+		cmd_ctx->cmd = &cmd_ctx->cmd_cpy;
 		return FI_SUCCESS;
 	}
 

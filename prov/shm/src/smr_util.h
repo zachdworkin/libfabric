@@ -75,6 +75,7 @@ extern struct smr_env smr_env;
 #define SMR_REMOTE_CQ_DATA	(1 << 0)
 #define SMR_BUFFER_RECV		(1 << 1)
 #define SMR_OP_ERROR		(1 << 2)
+#define SMR_RESP_SLOT_RETURN	(1 << 3)
 
 enum {
 	smr_proto_inline,	/* inline payload */
@@ -190,6 +191,17 @@ static_assert(sizeof(struct smr_cmd) == SMR_CMD_SIZE,
 #define SMR_NAME_MAX	256
 #define SMR_PATH_MAX	(SMR_NAME_MAX + sizeof(SMR_DIR))
 
+#define SMR_IOV_LIMIT_SLOTS	64
+enum smr_resp_status {
+	SMR_RESP_PENDING = 0,
+	SMR_RESP_DONE = 1,
+	SMR_RESP_RETURNED = 2,
+};
+
+struct smr_resp_slot {
+	uint64_t	status;
+} __attribute__((aligned(8)));
+
 enum smr_sar_status {
 	SMR_SAR_FREE = 0,
 	SMR_SAR_BUSY,
@@ -266,6 +278,7 @@ struct smr_region {
 		size_t			sar_pool_offset;
 		size_t			peer_data_offset;
 		size_t			name_offset;
+		size_t			resp_slots_offset;
 	} __attribute__ ((aligned(64)));
 };
 
@@ -341,6 +354,17 @@ static inline const char *smr_name(struct smr_region *smr)
 	return (const char *) smr + smr->name_offset;
 }
 
+static inline struct smr_resp_slot *smr_resp_slots(struct smr_region *smr)
+{
+	return (struct smr_resp_slot *)((char *) smr + smr->resp_slots_offset);
+}
+static inline uint64_t *smr_comp_count(struct smr_region *smr)
+{
+	return (uint64_t *)((char *) smr + smr->resp_slots_offset +
+		sizeof(struct smr_resp_slot) * SMR_IOV_LIMIT_SLOTS);
+}
+
+
 static inline struct smr_inject_buf *smr_get_inject_buf(struct smr_region *smr,
 							struct smr_cmd *cmd)
 {
@@ -359,7 +383,8 @@ size_t smr_calculate_size_offsets(size_t tx_count, size_t rx_count,
 				  size_t *cmd_offset, size_t *cs_offset,
 				  size_t *inject_offset, size_t *rq_offset,
 				  size_t *sar_offset, size_t *peer_offset,
-				  size_t *name_offset);
+				  size_t *name_offset,
+				  size_t *resp_slots_offset);
 void smr_cma_check(struct smr_region *region,
 		   struct smr_region *peer_region);
 void smr_cleanup(void);

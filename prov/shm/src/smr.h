@@ -49,6 +49,9 @@ struct smr_ep {
 	struct ofi_bufpool	*cmd_ctx_pool;
 	struct ofi_bufpool	*unexp_buf_pool;
 	struct ofi_bufpool	*pend_pool;
+	uint64_t			slot_bitmap;
+	uint64_t			last_comp_count;
+	struct smr_pend_entry		*slot_pend[SMR_IOV_LIMIT_SLOTS];
 
 	struct slist		overflow_list;
 	struct dlist_entry	sar_list;
@@ -124,6 +127,13 @@ static inline void smr_return_cmd(struct smr_ep *ep, struct smr_cmd *cmd)
 	struct smr_return_entry *queue_entry;
 	int ret;
 
+	if (cmd->hdr.op_flags & SMR_RESP_SLOT_RETURN) {
+		smr_resp_slots(peer_smr)[cmd->hdr.resv2].status = 1;
+		__atomic_add_fetch(smr_comp_count(peer_smr), 1,
+				   __ATOMIC_RELEASE);
+		return;
+	}
+
 	ret = smr_return_queue_next(smr_return_queue(peer_smr), &queue_entry,
 				    &pos);
 	if (ret == -FI_ENOENT) {
@@ -181,6 +191,7 @@ struct smr_pend_entry {
 	struct ofi_mr_entry		*ipc_entry;
 	ofi_hmem_async_event_t		async_event;
 	uint8_t				type;
+	uint8_t				op;
 	struct smr_cmd			*cmd;
 	struct iovec			iov[SMR_IOV_LIMIT];
 	size_t				iov_count;
