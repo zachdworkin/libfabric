@@ -76,10 +76,6 @@ def checkout_tar(name) {
   CTARGET = weekly ? weekly_target : change_target
   dir ("${env.CUSTOM_WORKSPACE}/${name}/libfabric") {
     checkout scm
-    sh """
-      git remote add upstream ${env.UPSTREAM}
-      git pull --rebase upstream ${CTARGET}
-    """
   }
   dir ("${env.CUSTOM_WORKSPACE}/${name}/") {
     sh "tar -cvf libfabric.tar.gz libfabric/*"
@@ -195,7 +191,7 @@ pipeline {
             script {
               withEnv(["TARGET=${CTARGET}"]) {
                 dir (CI_LOCATION) {
-                  return run_red("${env.MAIN_CONFIG}")
+                  return run_red("oneapi-jfcst-cbj")
                 }
               }
             }
@@ -208,7 +204,7 @@ pipeline {
             script {
               withEnv(["TARGET=${CTARGET}"]) {
                 dir (CI_LOCATION) {
-                  def ret = run_red("${env.LEVEL_ZERO_CONFIG}")
+                  def ret = run_red("oneapi-orpre-pvc-grp")
                   send_logs("${env.CBJ_ADDR}", "${env.CBJ_KEY}",
                             "${env.LOG_DIR}", "${env.LOG_DIR}")
                   return ret
@@ -237,12 +233,6 @@ pipeline {
           CI_summarize()
         }
       }
-      node ('level-zero') {
-        dir("${env.WORKSPACE}") { deleteDir() }
-        dir("${env.WORKSPACE}@tmp") { deleteDir() }
-      }
-      dir("${env.WORKSPACE}") { deleteDir() }
-      dir("${env.WORKSPACE}@tmp") { deleteDir() }
     }
   }
 }
