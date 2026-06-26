@@ -76,6 +76,8 @@ extern struct smr_env smr_env;
 #define SMR_BUFFER_RECV		(1 << 1)
 #define SMR_OP_ERROR		(1 << 2)
 #define SMR_RETURN_CMD		(1 << 3)
+#define SMR_RX_EXPORT_IPC	(1 << 4)
+#define SMR_IPC_COPY_DONE	(1 << 5)
 
 enum {
 	smr_proto_inline,	/* inline payload */

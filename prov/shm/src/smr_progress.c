@@ -82,6 +82,50 @@ void smr_free_sar_bufs(struct smr_ep *ep, struct smr_cmd *cmd,
 	smr_peer_data(ep->region)[cmd->hdr.tx_id].sar_status = SMR_SAR_FREE;
 }
 
+static int smr_progress_return_rx_export_ipc(struct smr_ep *ep,
+					      struct smr_cmd *cmd,
+					      struct smr_pend_entry *pend)
+{
+	struct smr_domain *domain;
+	struct ofi_mr_entry *mr_entry;
+	void *ptr;
+	ssize_t ret;
+
+	domain = container_of(ep->util_ep.domain, struct smr_domain,
+			      util_domain);
+
+	if (cmd->data.ipc_info.iface == FI_HMEM_ZE)
+		ze_set_pid_fd((void **) &cmd->data.ipc_info.ipc_handle,
+			      ep->map->peers[cmd->hdr.rx_id].pid_fd);
+
+	ret = ofi_ipc_cache_search(domain->ipc_cache, cmd->hdr.rx_id,
+				   &cmd->data.ipc_info, &mr_entry);
+	if (ret)
+		goto err;
+
+	ptr = (char *) (uintptr_t) mr_entry->info.mapped_addr +
+	      (uintptr_t) cmd->data.ipc_info.offset;
+
+	ret = ofi_copy_from_iov(ptr, cmd->hdr.size,
+				pend->iov, pend->iov_count, 0);
+
+	ofi_mr_cache_delete(domain->ipc_cache, mr_entry);
+
+	if (ret != (ssize_t) cmd->hdr.size) {
+		ret = ret < 0 ? ret : -FI_ETRUNC;
+		goto err;
+	}
+
+	ofi_wmb();
+	cmd->hdr.smr_flags |= SMR_IPC_COPY_DONE;
+	return FI_SUCCESS;
+
+err:
+	ofi_wmb();
+	cmd->hdr.smr_flags |= SMR_OP_ERROR | SMR_IPC_COPY_DONE;
+	return ret;
+}
+
 static int smr_progress_return_entry(struct smr_ep *ep, struct smr_cmd *cmd,
 				     struct smr_pend_entry *pend)
 {
@@ -94,6 +138,8 @@ static int smr_progress_return_entry(struct smr_ep *ep, struct smr_cmd *cmd,
 	case smr_proto_iov:
 		break;
 	case smr_proto_ipc:
+		if (cmd->hdr.smr_flags & SMR_RX_EXPORT_IPC)
+			return smr_progress_return_rx_export_ipc(ep, cmd, pend);
 		assert(pend->mr[0]);
 		break;
 	case smr_proto_sar:
@@ -206,7 +252,8 @@ static void smr_progress_return(struct smr_ep *ep)
 					"tx completion\n");
 			}
 			ofi_buf_free(pending);
-			smr_freestack_push(smr_cmd_stack(ep->region), cmd);
+			if (!(cmd->hdr.smr_flags & SMR_RX_EXPORT_IPC))
+				smr_freestack_push(smr_cmd_stack(ep->region), cmd);
 		}
 		smr_return_queue_release(smr_return_queue(ep->region),
 					 queue_entry, pos);
@@ -278,11 +325,39 @@ static ssize_t smr_progress_iov(struct smr_ep *ep, struct smr_cmd *cmd,
 {
 	struct smr_region *peer_smr;
 	struct ofi_xpmem_client *xpmem;
+	struct smr_pend_entry *pend;
+	void *base;
+	size_t base_length;
 	int ret;
 
 	peer_smr = smr_peer_region(ep, cmd->hdr.rx_id);
-
 	xpmem = &smr_peer_data(ep->region)[cmd->hdr.rx_id].xpmem;
+
+	if (!ofi_mr_all_host(mr, iov_count)) {
+		assert(iov_count == 1);
+		pend = ofi_buf_alloc(ep->pend_pool);
+		if (!pend) {
+			cmd->hdr.smr_flags |= SMR_OP_ERROR;
+			return -FI_ENOMEM;
+		}
+
+		smr_init_rx_pend(pend, cmd, rx_entry, mr, iov, iov_count);
+		ret = smr_format_ipc(cmd, iov[0].iov_base, cmd->hdr.size,
+				     ep->region, mr[0]->iface, mr[0]->device);
+		if (ret)
+			goto err;
+
+		cmd->hdr.smr_flags |= SMR_RX_EXPORT_IPC;
+		cmd->hdr.rx_ctx = (uintptr_t) pend;
+
+		dlist_insert_tail(&pend->entry, &ep->async_cpy_list);
+		smr_return_cmd(ep, cmd);
+		return -FI_EAGAIN;
+err:
+		cmd->hdr.smr_flags |= SMR_OP_ERROR;
+		ofi_buf_free(pend);
+		return ret;
+	}
 
 	ret = ofi_shm_p2p_copy(ep->p2p_type, iov, iov_count, cmd->data.iov,
 			       cmd->data.iov_count, cmd->hdr.size,
@@ -1474,6 +1549,32 @@ static void smr_progress_async_sar(struct smr_ep *ep,
 	}
 }
 
+static void smr_progress_async_rx_export_ipc(struct smr_ep *ep,
+					      struct smr_pend_entry *pend)
+{
+	int ret;
+
+	if (!(pend->cmd->hdr.smr_flags & SMR_IPC_COPY_DONE))
+		return;
+
+	ret = smr_complete_rx(ep, pend->comp_ctx, pend->cmd->hdr.op,
+			      pend->comp_flags, pend->cmd->hdr.size,
+			      pend->iov[0].iov_base,
+			      pend->cmd->hdr.rx_id,
+			      pend->cmd->hdr.tag,
+			      pend->cmd->hdr.cq_data);
+	if (ret)
+		FI_WARN(&smr_prov, FI_LOG_EP_CTRL,
+			"unable to process rx completion\n");
+
+	if (pend->rx_entry)
+		ep->srx->owner_ops->free_entry(pend->rx_entry);
+
+	smr_freestack_push(smr_cmd_stack(ep->region), pend->cmd);
+	dlist_remove(&pend->entry);
+	ofi_buf_free(pend);
+}
+
 void smr_progress_async(struct smr_ep *ep)
 {
 	struct smr_pend_entry *async_entry;
@@ -1482,6 +1583,10 @@ void smr_progress_async(struct smr_ep *ep)
 	dlist_foreach_container_safe(&ep->async_cpy_list,
 				     struct smr_pend_entry,
 				     async_entry, entry, tmp) {
+		if (async_entry->cmd->hdr.smr_flags & SMR_RX_EXPORT_IPC) {
+			smr_progress_async_rx_export_ipc(ep, async_entry);
+			continue;
+		}
 		switch (async_entry->cmd->hdr.proto) {
 		case smr_proto_ipc:
 			smr_progress_async_ipc(ep, async_entry);
