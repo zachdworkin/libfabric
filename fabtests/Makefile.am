@@ -42,6 +42,7 @@ bin_PROGRAMS = \
 	functional/fi_rdm_stress \
 	functional/fi_multi_recv \
 	functional/fi_hmem_scatter_recvv \
+	functional/fi_rdm_rma_order \
 	functional/fi_flood \
 	functional/fi_rdm_multi_client \
 	functional/fi_loopback \
@@ -388,6 +389,10 @@ functional_fi_hmem_scatter_recvv_SOURCES = \
 	functional/hmem_scatter_recvv.c
 functional_fi_hmem_scatter_recvv_LDADD = libfabtests.la
 
+functional_fi_rdm_rma_order_SOURCES = \
+	functional/rdm_rma_order.c
+functional_fi_rdm_rma_order_LDADD = libfabtests.la
+
 functional_fi_flood_SOURCES = \
 	 functional/flood.c
 functional_fi_flood_LDADD = libfabtests.la
@@ -694,6 +699,7 @@ dummy_man_pages = \
 	man/man1/fi_rdm_multi_domain.1 \
 	man/man1/fi_multi_recv.1 \
 	man/man1/fi_rdm_rma_event.1 \
+	man/man1/fi_rdm_rma_order.1 \
 	man/man1/fi_rdm_rma_trigger.1 \
 	man/man1/fi_rdm_shared_av.1 \
 	man/man1/fi_rdm_tagged_peek.1 \
